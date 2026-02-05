@@ -1,563 +1,452 @@
-// simulation.js - Three.jsを使った3Dエアホッケーアプリのメインロジック
+const API_BASE = window.location.origin;
+let socket;
+let sessionData;
+let currentUser;
 
-class AirHockeyGame {
-  constructor(containerId, socket, sessionData) {
-    this.container = document.getElementById(containerId);
-    this.socket = socket;
-    this.sessionData = sessionData;
-    
-    // アプリ状態
-    this.isMyTurn = true;
-    this.gameStarted = false;
-    this.myTeam = this.determineMyTeam();
-    
-    // Three.js基本要素
-    this.scene = null;
-    this.camera = null;
-    this.renderer = null;
-    
-    // アプリオブジェクト
-    this.table = null;
-    this.puck = null;
-    this.myMallet = null;
-    this.opponentMallet = null;
-    this.walls = [];
-    this.goals = [];
-    
-    // 物理演算用
-    this.puckVelocity = new THREE.Vector3(0, 0, 0);
-    this.friction = 0.98;
-    this.malletForce = 0.5;
-    
-    // マウス/タッチ操作
-    this.raycaster = new THREE.Raycaster();
-    this.mouse = new THREE.Vector2();
-    this.isDragging = false;
-    
-    // スコア
-    this.scores = { team1: 0, team2: 0 };
-    
-    this.init();
+// Canvas設定
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+
+// セッション設定
+const CANVAS_WIDTH = 800;
+const CANVAS_HEIGHT = 600;
+const PUCK_RADIUS = 15;
+const MALLET_RADIUS = 30;
+const GOAL_WIDTH = 200;
+const GOAL_HEIGHT = 20;
+const MAX_SCORE = 7;
+const FRICTION = 0.98;
+const PUCK_MAX_SPEED = 15;
+
+// セッション状態
+let sessionState = {
+  puck: {
+    x: CANVAS_WIDTH / 2,
+    y: CANVAS_HEIGHT / 2,
+    vx: 0,
+    vy: 0
+  },
+  mallets: {},
+  scores: {
+    team1: 0,
+    team2: 0
+  },
+  sessionOver: false,
+  startTime: Date.now(),
+  myMallet: null
+};
+
+// マウス/タッチ位置
+let mouseX = 0;
+let mouseY = 0;
+let isTouching = false;
+
+// 初期化
+async function init() {
+  // セッションデータ取得
+  const sessionDataStr = localStorage.getItem('sessionData');
+  const userStr = localStorage.getItem('user');
+  
+  if (!sessionDataStr || !userStr) {
+    window.location.href = '/lobby.html';
+    return;
   }
   
-  determineMyTeam() {
-    const myUserId = localStorage.getItem('userId');
-    if (this.sessionData.teams.team1.includes(myUserId)) {
-      return 'team1';
-    }
-    return 'team2';
-  }
+  sessionData = JSON.parse(sessionDataStr);
+  currentUser = JSON.parse(userStr);
   
-  init() {
-    this.setupScene();
-    this.setupLights();
-    this.createTable();
-    this.createPuck();
-    this.createMallets();
-    this.createWalls();
-    this.createGoals();
-    this.setupControls();
-    this.setupSocketListeners();
-    this.animate();
-    
-    this.gameStarted = true;
-  }
+  console.log('Session Data:', sessionData);
+  console.log('Current User:', currentUser);
   
-  setupScene() {
-    // シーン作成
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x1a1a2e);
-    
-    // カメラ設定
-    const aspect = this.container.clientWidth / this.container.clientHeight;
-    this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
-    
-    // チームによってカメラ位置を変更
-    if (this.myTeam === 'team1') {
-      this.camera.position.set(0, 12, 15);
-    } else {
-      this.camera.position.set(0, 12, -15);
-      this.camera.rotation.y = Math.PI;
-    }
-    
-    this.camera.lookAt(0, 0, 0);
-    
-    // レンダラー設定
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.container.appendChild(this.renderer.domElement);
-    
-    // リサイズ対応
-    window.addEventListener('resize', () => this.onWindowResize());
-  }
+  // Canvas設定
+  setupCanvas();
   
-  setupLights() {
-    // 環境光
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-    this.scene.add(ambientLight);
-    
-    // ディレクショナルライト
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(10, 20, 10);
-    directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
-    this.scene.add(directionalLight);
-    
-    // ポイントライト（雰囲気作り）
-    const pointLight1 = new THREE.PointLight(0x00ffff, 0.5, 50);
-    pointLight1.position.set(-8, 5, 0);
-    this.scene.add(pointLight1);
-    
-    const pointLight2 = new THREE.PointLight(0xff00ff, 0.5, 50);
-    pointLight2.position.set(8, 5, 0);
-    this.scene.add(pointLight2);
-  }
+  // Socket.IO接続
+  connectSocket();
   
-  createTable() {
-    // テーブル本体
-    const tableGeometry = new THREE.BoxGeometry(20, 0.5, 30);
-    const tableMaterial = new THREE.MeshStandardMaterial({
-      color: 0x16213e,
-      roughness: 0.3,
-      metalness: 0.7
-    });
-    this.table = new THREE.Mesh(tableGeometry, tableMaterial);
-    this.table.position.y = -0.25;
-    this.table.receiveShadow = true;
-    this.scene.add(this.table);
-    
-    // センターライン
-    const lineGeometry = new THREE.PlaneGeometry(0.1, 30);
-    const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-    const centerLine = new THREE.Mesh(lineGeometry, lineMaterial);
-    centerLine.rotation.x = -Math.PI / 2;
-    centerLine.position.y = 0.01;
-    this.scene.add(centerLine);
-    
-    // センターサークル
-    const circleGeometry = new THREE.RingGeometry(3, 3.1, 32);
-    const circleMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-    const centerCircle = new THREE.Mesh(circleGeometry, circleMaterial);
-    centerCircle.rotation.x = -Math.PI / 2;
-    centerCircle.position.y = 0.01;
-    this.scene.add(centerCircle);
-  }
+  // プレイヤー情報表示
+  displayPlayers();
   
-  createPuck() {
-    const puckGeometry = new THREE.CylinderGeometry(0.8, 0.8, 0.3, 32);
-    const puckMaterial = new THREE.MeshStandardMaterial({
-      color: 0xffff00,
-      emissive: 0xffff00,
-      emissiveIntensity: 0.3,
-      roughness: 0.4,
-      metalness: 0.6
-    });
-    this.puck = new THREE.Mesh(puckGeometry, puckMaterial);
-    this.puck.position.set(0, 0.15, 0);
-    this.puck.castShadow = true;
-    this.scene.add(this.puck);
-    
-    // パックの光エフェクト
-    const puckLight = new THREE.PointLight(0xffff00, 0.5, 5);
-    puckLight.position.copy(this.puck.position);
-    this.scene.add(puckLight);
-    this.puck.userData.light = puckLight;
-  }
+  // イベントリスナー
+  setupEventListeners();
   
-  createMallets() {
-    const malletGeometry = new THREE.CylinderGeometry(1, 1, 0.5, 32);
-    
-    // 自分のマレット
-    const myMalletMaterial = new THREE.MeshStandardMaterial({
-      color: this.myTeam === 'team1' ? 0x00ff00 : 0xff0000,
-      emissive: this.myTeam === 'team1' ? 0x00ff00 : 0xff0000,
-      emissiveIntensity: 0.2,
-      roughness: 0.5,
-      metalness: 0.5
-    });
-    this.myMallet = new THREE.Mesh(malletGeometry, myMalletMaterial);
-    this.myMallet.position.set(0, 0.25, this.myTeam === 'team1' ? 12 : -12);
-    this.myMallet.castShadow = true;
-    this.scene.add(this.myMallet);
-    
-    // 相手のマレット
-    const opponentMalletMaterial = new THREE.MeshStandardMaterial({
-      color: this.myTeam === 'team1' ? 0xff0000 : 0x00ff00,
-      emissive: this.myTeam === 'team1' ? 0xff0000 : 0x00ff00,
-      emissiveIntensity: 0.2,
-      roughness: 0.5,
-      metalness: 0.5
-    });
-    this.opponentMallet = new THREE.Mesh(malletGeometry, opponentMalletMaterial);
-    this.opponentMallet.position.set(0, 0.25, this.myTeam === 'team1' ? -12 : 12);
-    this.opponentMallet.castShadow = true;
-    this.scene.add(this.opponentMallet);
-  }
+  // セッションループ開始
+  sessionLoop();
   
-  createWalls() {
-    const wallMaterial = new THREE.MeshStandardMaterial({
-      color: 0x0f3460,
-      transparent: true,
-      opacity: 0.6,
-      roughness: 0.7
-    });
-    
-    // 左右の壁
-    const sideWallGeometry = new THREE.BoxGeometry(0.5, 2, 30);
-    
-    const leftWall = new THREE.Mesh(sideWallGeometry, wallMaterial);
-    leftWall.position.set(-10, 1, 0);
-    this.scene.add(leftWall);
-    this.walls.push({ mesh: leftWall, type: 'side' });
-    
-    const rightWall = new THREE.Mesh(sideWallGeometry, wallMaterial);
-    rightWall.position.set(10, 1, 0);
-    this.scene.add(rightWall);
-    this.walls.push({ mesh: rightWall, type: 'side' });
-    
-    // 上下の壁（ゴール部分を除く）
-    const endWallGeometry = new THREE.BoxGeometry(14, 2, 0.5);
-    
-    const topWallLeft = new THREE.Mesh(endWallGeometry, wallMaterial);
-    topWallLeft.position.set(-3, 1, -15);
-    this.scene.add(topWallLeft);
-    this.walls.push({ mesh: topWallLeft, type: 'end' });
-    
-    const topWallRight = new THREE.Mesh(endWallGeometry, wallMaterial);
-    topWallRight.position.set(3, 1, -15);
-    this.scene.add(topWallRight);
-    this.walls.push({ mesh: topWallRight, type: 'end' });
-    
-    const bottomWallLeft = new THREE.Mesh(endWallGeometry, wallMaterial);
-    bottomWallLeft.position.set(-3, 1, 15);
-    this.scene.add(bottomWallLeft);
-    this.walls.push({ mesh: bottomWallLeft, type: 'end' });
-    
-    const bottomWallRight = new THREE.Mesh(endWallGeometry, wallMaterial);
-    bottomWallRight.position.set(3, 1, 15);
-    this.scene.add(bottomWallRight);
-    this.walls.push({ mesh: bottomWallRight, type: 'end' });
-  }
-  
-  createGoals() {
-    const goalMaterial = new THREE.MeshStandardMaterial({
-      color: 0xff0000,
-      emissive: 0xff0000,
-      emissiveIntensity: 0.5,
-      transparent: true,
-      opacity: 0.3
-    });
-    
-    const goalGeometry = new THREE.BoxGeometry(4, 1, 0.5);
-    
-    // Team1のゴール
-    const goal1 = new THREE.Mesh(goalGeometry, goalMaterial);
-    goal1.position.set(0, 0.5, 15);
-    this.scene.add(goal1);
-    this.goals.push({ mesh: goal1, team: 'team1' });
-    
-    // Team2のゴール
-    const goal2 = new THREE.Mesh(goalGeometry, goalMaterial);
-    goal2.position.set(0, 0.5, -15);
-    this.scene.add(goal2);
-    this.goals.push({ mesh: goal2, team: 'team2' });
-  }
-  
-  setupControls() {
-    const canvas = this.renderer.domElement;
-    
-    // マウス操作
-    canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
-    canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
-    canvas.addEventListener('mouseup', (e) => this.onMouseUp(e));
-    
-    // タッチ操作
-    canvas.addEventListener('touchmove', (e) => this.onTouchMove(e));
-    canvas.addEventListener('touchstart', (e) => this.onTouchStart(e));
-    canvas.addEventListener('touchend', (e) => this.onTouchEnd(e));
-  }
-  
-  setupSocketListeners() {
-    // セッション状態の更新を受信
-    this.socket.on('session_state', (state) => {
-      this.updateGameState(state);
-    });
-    
-    // スコア更新を受信
-    this.socket.on('score_update', (scores) => {
-      this.scores = scores;
-      this.updateScoreDisplay();
-      this.resetPuck();
-    });
-    
-    // セッション終了
-    this.socket.on('session_end', (data) => {
-      this.endGame(data);
-    });
-  }
-  
-  onMouseMove(event) {
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    
-    if (this.isDragging) {
-      this.updateMalletPosition();
-    }
-  }
-  
-  onMouseDown(event) {
-    this.isDragging = true;
-  }
-  
-  onMouseUp(event) {
-    this.isDragging = false;
-  }
-  
-  onTouchMove(event) {
-    event.preventDefault();
-    const touch = event.touches[0];
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    this.mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
-    this.mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
-    
-    if (this.isDragging) {
-      this.updateMalletPosition();
-    }
-  }
-  
-  onTouchStart(event) {
-    event.preventDefault();
-    this.isDragging = true;
-    this.onTouchMove(event);
-  }
-  
-  onTouchEnd(event) {
-    event.preventDefault();
-    this.isDragging = false;
-  }
-  
-  updateMalletPosition() {
-    this.raycaster.setFromCamera(this.mouse, this.camera);
-    
-    // テーブル平面との交点を計算
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    const intersection = new THREE.Vector3();
-    this.raycaster.ray.intersectPlane(plane, intersection);
-    
-    if (intersection) {
-      // 移動範囲を制限（自陣のみ）
-      const maxZ = this.myTeam === 'team1' ? 15 : 0;
-      const minZ = this.myTeam === 'team1' ? 0 : -15;
-      
-      intersection.x = Math.max(-9, Math.min(9, intersection.x));
-      intersection.z = Math.max(minZ, Math.min(maxZ, intersection.z));
-      
-      this.myMallet.position.x = intersection.x;
-      this.myMallet.position.z = intersection.z;
-      
-      // サーバーに送信
-      this.socket.emit('session_update', {
-        sessionId: this.sessionData.sessionId,
-        type: 'mallet_move',
-        position: {
-          x: this.myMallet.position.x,
-          y: this.myMallet.position.y,
-          z: this.myMallet.position.z
-        }
-      });
-    }
-  }
-  
-  updateGameState(state) {
-    // 相手のマレット位置を更新
-    if (state.mallets) {
-      const opponentId = this.sessionData.players.find(id => 
-        id !== localStorage.getItem('userId')
-      );
-      
-      if (state.mallets[opponentId]) {
-        this.opponentMallet.position.copy(state.mallets[opponentId]);
-      }
-    }
-    
-    // パックの位置を更新
-    if (state.puck && !this.isMyTurn) {
-      this.puck.position.copy(state.puck.position);
-      this.puckVelocity.copy(state.puck.velocity);
-    }
-  }
-  
-  checkCollisions() {
-    // マレットとパックの衝突判定
-    const malletDistance = this.myMallet.position.distanceTo(this.puck.position);
-    if (malletDistance < 1.8) {
-      const direction = new THREE.Vector3()
-        .subVectors(this.puck.position, this.myMallet.position)
-        .normalize();
-      
-      this.puckVelocity.add(direction.multiplyScalar(this.malletForce));
-      
-      // パックを押し出す
-      const pushDistance = 1.8 - malletDistance;
-      this.puck.position.add(direction.multiplyScalar(pushDistance));
-    }
-    
-    // 壁との衝突判定
-    this.walls.forEach(wall => {
-      const wallBox = new THREE.Box3().setFromObject(wall.mesh);
-      const puckBox = new THREE.Box3().setFromObject(this.puck);
-      
-      if (wallBox.intersectsBox(puckBox)) {
-        if (wall.type === 'side') {
-          this.puckVelocity.x *= -0.8;
-          // パックを壁から押し出す
-          if (this.puck.position.x > 0) {
-            this.puck.position.x = 9.2;
-          } else {
-            this.puck.position.x = -9.2;
-          }
-        } else {
-          this.puckVelocity.z *= -0.8;
-          if (this.puck.position.z > 0) {
-            this.puck.position.z = 14.2;
-          } else {
-            this.puck.position.z = -14.2;
-          }
-        }
-      }
-    });
-    
-    // ゴール判定
-    this.goals.forEach(goal => {
-      const goalBox = new THREE.Box3().setFromObject(goal.mesh);
-      const puckBox = new THREE.Box3().setFromObject(this.puck);
-      
-      if (goalBox.intersectsBox(puckBox)) {
-        this.handleGoal(goal.team);
-      }
-    });
-  }
-  
-  handleGoal(scoringTeam) {
-    // 相手チームが得点
-    const scoredTeam = scoringTeam === 'team1' ? 'team2' : 'team1';
-    
-    // サーバーに送信
-    this.socket.emit('score', {
-      sessionId: this.sessionData.sessionId,
-      team: scoredTeam
-    });
-  }
-  
-  resetPuck() {
-    this.puck.position.set(0, 0.15, 0);
-    this.puckVelocity.set(0, 0, 0);
-    
-    // パックの光も更新
-    if (this.puck.userData.light) {
-      this.puck.userData.light.position.copy(this.puck.position);
-    }
-  }
-  
-  updateScoreDisplay() {
-    // スコア表示を更新（DOM要素）
-    const scoreElement = document.getElementById('score-display');
-    if (scoreElement) {
-      scoreElement.textContent = `${this.scores.team1} - ${this.scores.team2}`;
-    }
-  }
-  
-  updatePhysics() {
-    if (!this.gameStarted) return;
-    
-    // パックの移動
-    this.puck.position.add(this.puckVelocity);
-    
-    // 摩擦を適用
-    this.puckVelocity.multiplyScalar(this.friction);
-    
-    // 速度が十分小さくなったら停止
-    if (this.puckVelocity.length() < 0.001) {
-      this.puckVelocity.set(0, 0, 0);
-    }
-    
-    // パックの光を更新
-    if (this.puck.userData.light) {
-      this.puck.userData.light.position.copy(this.puck.position);
-    }
-    
-    // 衝突判定
-    this.checkCollisions();
-    
-    // パックの状態をサーバーに送信（一定間隔で）
-    if (Math.random() < 0.1) {
-      this.socket.emit('session_update', {
-        sessionId: this.sessionData.sessionId,
-        type: 'puck_update',
-        puck: {
-          position: this.puck.position,
-          velocity: this.puckVelocity
-        }
-      });
-    }
-  }
-  
-  animate() {
-    requestAnimationFrame(() => this.animate());
-    
-    this.updatePhysics();
-    this.renderer.render(this.scene, this.camera);
-  }
-  
-  onWindowResize() {
-    this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
-  }
-  
-  endGame(data) {
-    this.gameStarted = false;
-    
-    // 結果表示
-    const resultMessage = data.isWinner ? '勝利！' : '敗北...';
-    const resultElement = document.getElementById('result-overlay');
-    if (resultElement) {
-      resultElement.textContent = resultMessage;
-      resultElement.style.display = 'block';
-    }
-    
-    // 数秒後にロビーに戻る
-    setTimeout(() => {
-      window.location.href = '/lobby.html';
-    }, 5000);
-  }
-  
-  destroy() {
-    this.gameStarted = false;
-    
-    // イベントリスナーを削除
-    window.removeEventListener('resize', this.onWindowResize);
-    
-    // Three.jsリソースを解放
-    this.scene.traverse((object) => {
-      if (object.geometry) object.geometry.dispose();
-      if (object.material) {
-        if (Array.isArray(object.material)) {
-          object.material.forEach(material => material.dispose());
-        } else {
-          object.material.dispose();
-        }
-      }
-    });
-    
-    this.renderer.dispose();
-    this.container.removeChild(this.renderer.domElement);
+  // モバイルの場合はタッチコントロール表示
+  const device = detectDevice();
+  if (device.isMobile) {
+    document.getElementById('touch-controls').style.display = 'block';
   }
 }
 
-// グローバルに公開
-window.AirHockeyGame = AirHockeyGame;
+// Canvas設定
+function setupCanvas() {
+  canvas.width = CANVAS_WIDTH;
+  canvas.height = CANVAS_HEIGHT;
+  
+  // 初期マレット位置設定
+  const myTeam = getMyTeam();
+  const myIndex = sessionData.teams[myTeam].indexOf(currentUser._id);
+  
+  if (myTeam === 'team1') {
+    // Team 1は下側
+    if (sessionData.mode === '1v1') {
+      sessionState.myMallet = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT - 80 };
+    } else {
+      // 2v2の場合
+      const xPos = myIndex === 0 ? CANVAS_WIDTH / 3 : (2 * CANVAS_WIDTH / 3);
+      sessionState.myMallet = { x: xPos, y: CANVAS_HEIGHT - 80 };
+    }
+  } else {
+    // Team 2は上側
+    if (sessionData.mode === '1v1') {
+      sessionState.myMallet = { x: CANVAS_WIDTH / 2, y: 80 };
+    } else {
+      const xPos = myIndex === 0 ? CANVAS_WIDTH / 3 : (2 * CANVAS_WIDTH / 3);
+      sessionState.myMallet = { x: xPos, y: 80 };
+    }
+  }
+}
+
+// Socket.IO接続
+function connectSocket() {
+  socket = io(API_BASE, {
+    auth: {
+      token: localStorage.getItem('token')
+    }
+  });
+  
+  socket.on('connect', () => {
+    console.log('Socket connected');
+    socket.emit('authenticate', currentUser._id);
+  });
+  
+  // 他プレイヤーのセッション状態受信
+  socket.on('session_state', (state) => {
+    // パックの位置更新
+    if (state.puck) {
+      sessionState.puck = state.puck;
+    }
+    
+    // 他プレイヤーのマレット位置更新
+    if (state.mallets) {
+      Object.keys(state.mallets).forEach(userId => {
+        if (userId !== currentUser._id) {
+          sessionState.mallets[userId] = state.mallets[userId];
+        }
+      });
+    }
+  });
+  
+  // スコア更新
+  socket.on('score_update', (scores) => {
+    sessionState.scores = scores;
+    updateScoreUI();
+    resetPuck();
+  });
+  
+  // セッション終了
+  socket.on('session_end', (result) => {
+    sessionState.sessionOver = true;
+    showSessionOver(result);
+  });
+}
+
+// イベントリスナー設定
+function setupEventListeners() {
+  // マウス操作
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = (e.clientX - rect.left) * (CANVAS_WIDTH / rect.width);
+    mouseY = (e.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
+  });
+  
+  // タッチ操作
+  canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const touch = e.touches[0];
+    mouseX = (touch.clientX - rect.left) * (CANVAS_WIDTH / rect.width);
+    mouseY = (touch.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
+    isTouching = true;
+  });
+  
+  canvas.addEventListener('touchend', () => {
+    isTouching = false;
+  });
+  
+  // ロビーに戻る
+  document.getElementById('return-lobby').addEventListener('click', () => {
+    localStorage.removeItem('sessionData');
+    window.location.href = '/lobby.html';
+  });
+}
+
+// プレイヤー情報表示
+function displayPlayers() {
+  const playersList = document.getElementById('players-list');
+  const allPlayers = [...sessionData.teams.team1, ...sessionData.teams.team2];
+  
+  playersList.innerHTML = allPlayers.map(userId => {
+    const team = sessionData.teams.team1.includes(userId) ? 'team1' : 'team2';
+    const isSelf = userId === currentUser._id;
+    return `
+      <div class="player-item ${team}">
+        ${isSelf ? 'You' : 'Player'} (Team ${team === 'team1' ? '1' : '2'})
+      </div>
+    `;
+  }).join('');
+}
+
+// 自分のチーム取得
+function getMyTeam() {
+  if (sessionData.teams.team1.includes(currentUser._id)) {
+    return 'team1';
+  }
+  return 'team2';
+}
+
+// セッションループ
+function sessionLoop() {
+  if (sessionState.sessionOver) return;
+  
+  // 更新
+  update();
+  
+  // 描画
+  render();
+  
+  // 次のフレーム
+  requestAnimationFrame(sessionLoop);
+}
+
+// 更新処理
+function update() {
+  // 自分のマレット更新
+  if (sessionState.myMallet) {
+    const targetX = Math.max(MALLET_RADIUS, Math.min(CANVAS_WIDTH - MALLET_RADIUS, mouseX));
+    const targetY = Math.max(MALLET_RADIUS, Math.min(CANVAS_HEIGHT - MALLET_RADIUS, mouseY));
+    
+    // 滑らかに移動
+    sessionState.myMallet.x += (targetX - sessionState.myMallet.x) * 0.2;
+    sessionState.myMallet.y += (targetY - sessionState.myMallet.y) * 0.2;
+    
+    // サーバーに送信（スロットリング）
+    if (!sessionLoop.lastSent || Date.now() - sessionLoop.lastSent > 50) {
+      socket.emit('session_update', {
+        sessionId: sessionData.sessionId,
+        type: 'mallet_move',
+        position: sessionState.myMallet
+      });
+      sessionLoop.lastSent = Date.now();
+    }
+  }
+  
+  // パック物理演算（簡易版）
+  updatePuck();
+  
+  // タイマー更新
+  const elapsed = Math.floor((Date.now() - sessionState.startTime) / 1000);
+  const minutes = Math.floor(elapsed / 60);
+  const seconds = elapsed % 60;
+  document.getElementById('timer').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+// パック物理演算
+function updatePuck() {
+  // 速度に摩擦を適用
+  sessionState.puck.vx *= FRICTION;
+  sessionState.puck.vy *= FRICTION;
+  
+  // 位置更新
+  sessionState.puck.x += sessionState.puck.vx;
+  sessionState.puck.y += sessionState.puck.vy;
+  
+  // 壁との衝突
+  if (sessionState.puck.x - PUCK_RADIUS < 0 || sessionState.puck.x + PUCK_RADIUS > CANVAS_WIDTH) {
+    sessionState.puck.vx *= -0.8;
+    sessionState.puck.x = Math.max(PUCK_RADIUS, Math.min(CANVAS_WIDTH - PUCK_RADIUS, sessionState.puck.x));
+  }
+  
+  // ゴール判定（上下の壁）
+  if (sessionState.puck.y - PUCK_RADIUS < 0) {
+    // 上ゴール（Team 2のゴール） = Team 1のスコア
+    const goalLeft = (CANVAS_WIDTH - GOAL_WIDTH) / 2;
+    const goalRight = goalLeft + GOAL_WIDTH;
+    
+    if (sessionState.puck.x >= goalLeft && sessionState.puck.x <= goalRight) {
+      scoreGoal('team1');
+    } else {
+      sessionState.puck.vy *= -0.8;
+      sessionState.puck.y = PUCK_RADIUS;
+    }
+  }
+  
+  if (sessionState.puck.y + PUCK_RADIUS > CANVAS_HEIGHT) {
+    // 下ゴール（Team 1のゴール） = Team 2のスコア
+    const goalLeft = (CANVAS_WIDTH - GOAL_WIDTH) / 2;
+    const goalRight = goalLeft + GOAL_WIDTH;
+    
+    if (sessionState.puck.x >= goalLeft && sessionState.puck.x <= goalRight) {
+      scoreGoal('team2');
+    } else {
+      sessionState.puck.vy *= -0.8;
+      sessionState.puck.y = CANVAS_HEIGHT - PUCK_RADIUS;
+    }
+  }
+  
+  // マレットとの衝突（自分のマレットのみ）
+  if (sessionState.myMallet) {
+    checkMalletCollision(sessionState.myMallet);
+  }
+  
+  // 速度制限
+  const speed = Math.sqrt(sessionState.puck.vx ** 2 + sessionState.puck.vy ** 2);
+  if (speed > PUCK_MAX_SPEED) {
+    const ratio = PUCK_MAX_SPEED / speed;
+    sessionState.puck.vx *= ratio;
+    sessionState.puck.vy *= ratio;
+  }
+}
+
+// マレットとパックの衝突
+function checkMalletCollision(mallet) {
+  const dx = sessionState.puck.x - mallet.x;
+  const dy = sessionState.puck.y - mallet.y;
+  const distance = Math.sqrt(dx ** 2 + dy ** 2);
+  
+  if (distance < PUCK_RADIUS + MALLET_RADIUS) {
+    // 衝突角度
+    const angle = Math.atan2(dy, dx);
+    
+    // パックを押し出す
+    const overlap = (PUCK_RADIUS + MALLET_RADIUS) - distance;
+    sessionState.puck.x += Math.cos(angle) * overlap;
+    sessionState.puck.y += Math.sin(angle) * overlap;
+    
+    // 反発力を与える
+    const force = 1.5;
+    sessionState.puck.vx += Math.cos(angle) * force;
+    sessionState.puck.vy += Math.sin(angle) * force;
+    
+    // パック状態をサーバーに送信
+    socket.emit('session_update', {
+      sessionId: sessionData.sessionId,
+      type: 'puck_update',
+      puck: sessionState.puck
+    });
+  }
+}
+
+// 得点処理
+function scoreGoal(team) {
+  socket.emit('score', {
+    sessionId: sessionData.sessionId,
+    team: team
+  });
+}
+
+// パックリセット
+function resetPuck() {
+  sessionState.puck = {
+    x: CANVAS_WIDTH / 2,
+    y: CANVAS_HEIGHT / 2,
+    vx: 0,
+    vy: 0
+  };
+}
+
+// 描画処理
+function render() {
+  // 背景
+  ctx.fillStyle = '#1a2332';
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  
+  // 中央線
+  ctx.strokeStyle = '#2d3e50';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([15, 10]);
+  ctx.beginPath();
+  ctx.moveTo(0, CANVAS_HEIGHT / 2);
+  ctx.lineTo(CANVAS_WIDTH, CANVAS_HEIGHT / 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  
+  // センターサークル
+  ctx.strokeStyle = '#2d3e50';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 50, 0, Math.PI * 2);
+  ctx.stroke();
+  
+  // ゴール（上）
+  const goalLeft = (CANVAS_WIDTH - GOAL_WIDTH) / 2;
+  ctx.fillStyle = '#e74c3c';
+  ctx.fillRect(goalLeft, 0, GOAL_WIDTH, GOAL_HEIGHT);
+  
+  // ゴール（下）
+  ctx.fillStyle = '#3498db';
+  ctx.fillRect(goalLeft, CANVAS_HEIGHT - GOAL_HEIGHT, GOAL_WIDTH, GOAL_HEIGHT);
+  
+  // パック
+  ctx.fillStyle = '#f39c12';
+  ctx.beginPath();
+  ctx.arc(sessionState.puck.x, sessionState.puck.y, PUCK_RADIUS, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // パックの輪郭
+  ctx.strokeStyle = '#d68910';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  
+  // 自分のマレット
+  if (sessionState.myMallet) {
+    const myTeam = getMyTeam();
+    ctx.fillStyle = myTeam === 'team1' ? '#3498db' : '#e74c3c';
+    ctx.beginPath();
+    ctx.arc(sessionState.myMallet.x, sessionState.myMallet.y, MALLET_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // マレットの輪郭
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+  
+  // 他プレイヤーのマレット
+  Object.keys(sessionState.mallets).forEach(userId => {
+    if (userId !== currentUser._id) {
+      const mallet = sessionState.mallets[userId];
+      const team = sessionData.teams.team1.includes(userId) ? 'team1' : 'team2';
+      ctx.fillStyle = team === 'team1' ? '#3498db' : '#e74c3c';
+      ctx.globalAlpha = 0.7;
+      ctx.beginPath();
+      ctx.arc(mallet.x, mallet.y, MALLET_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+    }
+  });
+}
+
+// スコアUI更新
+function updateScoreUI() {
+  document.getElementById('score-team1').textContent = sessionState.scores.team1;
+  document.getElementById('score-team2').textContent = sessionState.scores.team2;
+}
+
+// セッション終了表示
+function showSessionOver(result) {
+  const overlay = document.getElementById('game-over');
+  const winnerText = document.getElementById('winner-text');
+  
+  winnerText.textContent = result.winner === 'team1' ? 'Team 1 Wins!' : 'Team 2 Wins!';
+  
+  document.getElementById('final-score-team1').textContent = result.scores.team1;
+  document.getElementById('final-score-team2').textContent = result.scores.team2;
+  
+  overlay.style.display = 'flex';
+}
+
+// ページロード時に初期化
+document.addEventListener('DOMContentLoaded', init);
