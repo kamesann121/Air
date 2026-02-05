@@ -3,67 +3,204 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Physics Simulation - Air Hockey</title>
+  <title>新しくタブ</title>
+  <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="/css/simulation.css">
 </head>
 <body>
-  <!-- ゲームヘッダー -->
-  <header class="session-header">
-    <div class="header-content">
-      <div class="team-info team-1">
-        <h3>Team 1</h3>
-        <div class="score" id="score-team1">0</div>
+  <div class="app-container">
+    <!-- アプリヘッダー -->
+    <header class="app-header">
+      <div class="score-board">
+        <div class="team team-1">
+          <span class="team-label">Team 1</span>
+          <span class="team-score" id="score-team1">0</span>
+        </div>
+        
+        <div class="score-divider">-</div>
+        
+        <div class="team team-2">
+          <span class="team-score" id="score-team2">0</span>
+          <span class="team-label">Team 2</span>
+        </div>
       </div>
       
-      <div class="session-timer">
-        <div id="timer">0:00</div>
-        <div class="session-status" id="session-status">Get Ready!</div>
+      <div class="app-info">
+        <div id="app-mode" class="app-mode">1v1</div>
+        <div id="latency-display" class="latency">--ms</div>
       </div>
-      
-      <div class="team-info team-2">
-        <h3>Team 2</h3>
-        <div class="score" id="score-team2">0</div>
-      </div>
-    </div>
-  </header>
+    </header>
 
-  <!-- ゲームキャンバス -->
-  <main class="session-container">
-    <canvas id="game-canvas"></canvas>
-    
-    <!-- ゲームオーバー画面 -->
-    <div class="session-over-overlay" id="game-over" style="display: none;">
-      <div class="session-over-content">
-        <h1 id="winner-text">Team 1 Wins!</h1>
+    <!-- 3Dキャンバス -->
+    <div id="app-canvas" class="app-canvas"></div>
+
+    <!-- 結果オーバーレイ -->
+    <div id="result-overlay" class="result-overlay hidden">
+      <div class="result-content">
+        <h2 id="result-title">結果</h2>
+        <div id="result-message" class="result-message"></div>
         <div class="final-score">
-          <div class="team-score">
-            <h3>Team 1</h3>
-            <div class="score-large" id="final-score-team1">0</div>
+          <div class="final-score-item">
+            <span class="label">Team 1</span>
+            <span class="value" id="final-score-team1">0</span>
           </div>
-          <div class="vs">-</div>
-          <div class="team-score">
-            <h3>Team 2</h3>
-            <div class="score-large" id="final-score-team2">0</div>
+          <div class="final-score-divider">-</div>
+          <div class="final-score-item">
+            <span class="value" id="final-score-team2">0</span>
+            <span class="label">Team 2</span>
           </div>
         </div>
-        <button class="btn btn-primary" id="return-lobby">Return to Lobby</button>
+        <p class="redirect-message">5秒後にロビーに戻ります...</p>
+        <button id="return-lobby-btn" class="btn btn-primary">今すぐロビーに戻る</button>
       </div>
     </div>
 
-    <!-- タッチコントロール（モバイル用） -->
-    <div class="touch-controls" id="touch-controls" style="display: none;">
-      <div class="touch-area" id="touch-area"></div>
+    <!-- コントロールヒント -->
+    <div class="controls-hint">
+      <p>💡 マウスまたはタッチでマレットを操作</p>
     </div>
-  </main>
+  </div>
 
-  <!-- プレイヤー情報サイドバー -->
-  <aside class="players-sidebar">
-    <h3>Players</h3>
-    <div id="players-list"></div>
-  </aside>
-
-  <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
-  <script src="/js/fingerprint.js"></script>
+  <!-- Three.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  
+  <!-- Socket.IO クライアント -->
+  <script src="/socket.io/socket.io.js"></script>
+  
+  <!-- カスタムスクリプト -->
+  <script src="/js/socket-client.js"></script>
   <script src="/js/simulation.js"></script>
+  <script>
+    let airHockey = null;
+    let socketClient = null;
+    
+    // ページ読み込み時の初期化
+    document.addEventListener('DOMContentLoaded', async () => {
+      // 認証チェック
+      const token = localStorage.getItem('token');
+      const userId = localStorage.getItem('userId');
+      
+      if (!token || !userId) {
+        window.location.href = '/login.html';
+        return;
+      }
+      
+      // セッションデータ取得
+      const sessionDataStr = localStorage.getItem('sessionData');
+      if (!sessionDataStr) {
+        alert('セッションデータが見つかりません');
+        window.location.href = '/lobby.html';
+        return;
+      }
+      
+      const sessionData = JSON.parse(sessionDataStr);
+      
+      try {
+        // Socket.IO接続
+        socketClient = new SocketClient();
+        const socket = await socketClient.connect();
+        
+        // モード表示
+        document.getElementById('app-mode').textContent = sessionData.mode;
+        
+        // アプリ初期化
+        airHockey = new AirHockeyGame('app-canvas', socket, sessionData);
+        
+        // スコア更新イベント
+        socket.on('score_update', (scores) => {
+          updateScoreDisplay(scores);
+        });
+        
+        // ゲーム終了イベント
+        socket.on('session_end', (data) => {
+          showGameResult(data);
+        });
+        
+        // ロビーに戻るボタン
+        document.getElementById('return-lobby-btn').addEventListener('click', () => {
+          returnToLobby();
+        });
+        
+      } catch (error) {
+        console.error('アプリ初期化エラー:', error);
+        alert('アプリの開始に失敗しました');
+        window.location.href = '/lobby.html';
+      }
+    });
+    
+    // スコア表示を更新
+    function updateScoreDisplay(scores) {
+      document.getElementById('score-team1').textContent = scores.team1;
+      document.getElementById('score-team2').textContent = scores.team2;
+    }
+    
+    // 結果を表示
+    function showGameResult(data) {
+      const overlay = document.getElementById('result-overlay');
+      const resultTitle = document.getElementById('result-title');
+      const resultMessage = document.getElementById('result-message');
+      
+      // 結果メッセージ
+      if (data.isWinner) {
+        resultTitle.textContent = '🎉 勝利！';
+        resultTitle.className = 'result-title winner';
+        resultMessage.textContent = 'おめでとうございます！';
+      } else {
+        resultTitle.textContent = '😔 敗北';
+        resultTitle.className = 'result-title loser';
+        resultMessage.textContent = '次は頑張りましょう！';
+      }
+      
+      // 最終スコア
+      document.getElementById('final-score-team1').textContent = data.scores.team1;
+      document.getElementById('final-score-team2').textContent = data.scores.team2;
+      
+      // オーバーレイを表示
+      overlay.classList.remove('hidden');
+      
+      // 5秒後に自動的にロビーに戻る
+      setTimeout(() => {
+        returnToLobby();
+      }, 5000);
+    }
+    
+    // ロビーに戻る
+    function returnToLobby() {
+      // セッションデータをクリア
+      localStorage.removeItem('sessionData');
+      
+      // アプリを破棄
+      if (airHockey) {
+        airHockey.destroy();
+        airHockey = null;
+      }
+      
+      // Socket切断
+      if (socketClient) {
+        socketClient.disconnect();
+      }
+      
+      // ロビーに遷移
+      window.location.href = '/lobby.html';
+    }
+    
+    // ページを離れる前の確認
+    window.addEventListener('beforeunload', (e) => {
+      if (airHockey && airHockey.gameStarted) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+    
+    // ページアンロード時のクリーンアップ
+    window.addEventListener('unload', () => {
+      if (airHockey) {
+        airHockey.destroy();
+      }
+      if (socketClient) {
+        socketClient.disconnect();
+      }
+    });
+  </script>
 </body>
 </html>
