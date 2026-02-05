@@ -188,7 +188,6 @@ router.post('/request/:requestId/reject', auth, async (req, res) => {
     // リクエストを拒否済みに（削除してもOK）
     request.status = 'rejected';
     await request.save();
-    // または await request.remove();
 
     res.json({
       message: 'Friend request rejected',
