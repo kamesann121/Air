@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Session Room - Physics Platform</title>
+  <link rel="stylesheet" href="/css/lobby.css">
+</head>
+<body>
+  <!-- ヘッダー -->
+  <header class="header">
+    <div class="header-left">
+      <h1>⚛️ Physics Platform</h1>
+      <span class="status-indicator online">● Online</span>
+    </div>
+    <div class="header-right">
+      <div class="user-info">
+        <span class="user-avatar" id="user-avatar">🎯</span>
+        <span class="user-nickname" id="user-nickname">Loading...</span>
+      </div>
+      <button class="settings-btn" id="settings-btn">⚙️</button>
+    </div>
+  </header>
+
+  <!-- メインコンテンツ -->
+  <main class="main-container">
+    <!-- 左側: マッチメイキング -->
+    <section class="left-panel">
+      <div class="panel-header">
+        <h2>Session Matching</h2>
+      </div>
+
+      <!-- ソロマッチメイキング（デフォルト） -->
+      <div id="solo-matchmaking" class="matchmaking-section">
+        <div class="matchmaking-card">
+          <div class="card-icon">🎯</div>
+          <h3>Solo Queue</h3>
+          <p>Find a random opponent for 1v1</p>
+          <button class="btn btn-primary" id="join-solo-queue">
+            Find Match
+          </button>
+          <div class="queue-status" id="solo-queue-status" style="display: none;">
+            <div class="loading-spinner"></div>
+            <p>Searching for opponent...</p>
+            <button class="btn btn-secondary" id="leave-solo-queue">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- グループマッチメイキング（パーティー参加時） -->
+      <div id="party-matchmaking" class="matchmaking-section" style="display: none;">
+        <div class="party-info">
+          <h3>Your Party</h3>
+          <div class="party-members" id="party-members"></div>
+          <div class="party-controls">
+            <button class="btn btn-primary" id="toggle-ready">
+              <span id="ready-text">Ready</span>
+            </button>
+            <button class="btn btn-danger" id="leave-party">Leave Party</button>
+          </div>
+          <div class="party-status" id="party-status">
+            Waiting for all members to be ready...
+          </div>
+        </div>
+      </div>
+
+      <!-- パーティー作成ボタン -->
+      <div class="create-party-section">
+        <h3>Create Party</h3>
+        <div class="party-size-options">
+          <button class="btn btn-outline" id="create-party-2">
+            Create 2-Player Party (1v1)
+          </button>
+          <button class="btn btn-outline" id="create-party-4">
+            Create 4-Player Party (2v2)
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 右側: フレンドリスト -->
+    <section class="right-panel">
+      <div class="panel-header">
+        <h2>Friends</h2>
+        <button class="btn-icon" id="refresh-friends" title="Refresh">🔄</button>
+      </div>
+
+      <div class="friends-list" id="friends-list">
+        <div class="empty-state">
+          <p>No friends yet</p>
+          <p class="hint">Use settings to add friends</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 設定モーダル -->
+  <div class="modal" id="settings-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <button class="modal-close" id="close-settings">×</button>
+      </div>
+
+      <!-- タブ -->
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="profile">Profile</button>
+        <button class="tab-btn" data-tab="add-friend">Add Friend</button>
+        <button class="tab-btn" data-tab="requests">
+          Friend Requests
+          <span class="badge" id="requests-badge" style="display: none;">0</span>
+        </button>
+      </div>
+
+      <!-- プロフィールタブ -->
+      <div class="tab-content active" id="profile-tab">
+        <div class="profile-section">
+          <div class="profile-field">
+            <label>User ID (UID)</label>
+            <div class="uid-display">
+              <code id="user-uid">Loading...</code>
+              <button class="btn-icon" id="copy-uid" title="Copy UID">📋</button>
+            </div>
+          </div>
+
+          <div class="profile-field">
+            <label for="edit-nickname">Nickname</label>
+            <input type="text" id="edit-nickname" maxlength="20" placeholder="Your nickname">
+          </div>
+
+          <div class="profile-field">
+            <label>Avatar</label>
+            <div class="avatar-picker" id="avatar-picker">
+              <button class="avatar-option" data-avatar="🎯">🎯</button>
+              <button class="avatar-option" data-avatar="🎮">🎮</button>
+              <button class="avatar-option" data-avatar="⚡">⚡</button>
+              <button class="avatar-option" data-avatar="🔥">🔥</button>
+              <button class="avatar-option" data-avatar="⭐">⭐</button>
+              <button class="avatar-option" data-avatar="🌟">🌟</button>
+              <button class="avatar-option" data-avatar="💫">💫</button>
+              <button class="avatar-option" data-avatar="🚀">🚀</button>
+              <button class="avatar-option" data-avatar="🏆">🏆</button>
+              <button class="avatar-option" data-avatar="👑">👑</button>
+            </div>
+          </div>
+
+          <div class="profile-stats">
+            <h4>Statistics</h4>
+            <div class="stats-grid">
+              <div class="stat-item">
+                <span class="stat-label">Wins</span>
+                <span class="stat-value" id="stat-wins">0</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">Losses</span>
+                <span class="stat-value" id="stat-losses">0</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">Win Rate</span>
+                <span class="stat-value" id="stat-winrate">0%</span>
+              </div>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" id="save-profile">Save Changes</button>
+          <button class="btn btn-danger" id="logout-btn">Log Out</button>
+        </div>
+      </div>
+
+      <!-- フレンド追加タブ -->
+      <div class="tab-content" id="add-friend-tab">
+        <div class="add-friend-section">
+          <p>Search by Nickname or UID</p>
+          <form id="add-friend-form">
+            <input 
+              type="text" 
+              id="friend-search" 
+              placeholder="Enter nickname or UID"
+              required
+            >
+            <button type="submit" class="btn btn-primary">Send Request</button>
+          </form>
+          <div id="add-friend-result" class="result-message"></div>
+        </div>
+      </div>
+
+      <!-- フレンド申請タブ -->
+      <div class="tab-content" id="requests-tab">
+        <div class="requests-section">
+          <h3>Received Requests</h3>
+          <div id="received-requests" class="requests-list">
+            <p class="empty-state">No pending requests</p>
+          </div>
+
+          <h3>Sent Requests</h3>
+          <div id="sent-requests" class="requests-list">
+            <p class="empty-state">No pending requests</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 招待モーダル -->
+  <div class="modal" id="invite-modal">
+    <div class="modal-content small">
+      <div class="modal-header">
+        <h2>Party Invitation</h2>
+        <button class="modal-close" id="close-invite">×</button>
+      </div>
+      <div class="modal-body">
+        <p id="invite-message">You have been invited to a party</p>
+        <div class="modal-actions">
+          <button class="btn btn-primary" id="accept-invite">Accept</button>
+          <button class="btn btn-secondary" id="decline-invite">Decline</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+  <script src="/js/fingerprint.js"></script>
+  <script src="/js/lobby.js"></script>
+</body>
+</html>
