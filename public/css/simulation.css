@@ -26,7 +26,8 @@ body {
   height: 100vh;
 }
 
-/* ゲームヘッダー */
+/* セッションヘッダー */
+.session-header,
 .game-header {
   background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
   padding: 1rem 2rem;
@@ -76,6 +77,7 @@ body {
   color: var(--team2-color);
 }
 
+.session-timer,
 .game-timer {
   text-align: center;
 }
@@ -87,6 +89,7 @@ body {
   margin-bottom: 0.5rem;
 }
 
+.session-status,
 .game-status {
   font-size: 0.9rem;
   opacity: 0.7;
@@ -94,7 +97,8 @@ body {
   letter-spacing: 1px;
 }
 
-/* ゲームコンテナ */
+/* セッションコンテナ */
+.session-container,
 .game-container {
   flex: 1;
   display: flex;
@@ -104,6 +108,7 @@ body {
   padding: 1rem;
 }
 
+/* セッションキャンバス */
 #game-canvas {
   border: 3px solid #2d2d44;
   border-radius: 12px;
@@ -113,7 +118,7 @@ body {
   max-height: 100%;
 }
 
-/* ゲームオーバー画面 */
+/* セッション終了画面 */
 .game-over-overlay {
   position: absolute;
   top: 0;
@@ -297,6 +302,7 @@ body {
 }
 
 @media (max-width: 768px) {
+  .session-header,
   .game-header {
     padding: 0.8rem 1rem;
   }
@@ -305,65 +311,4 @@ body {
     gap: 0.5rem;
   }
   
-  .team-info h3 {
-    font-size: 0.7rem;
-  }
-  
-  .score {
-    font-size: 1.5rem;
-  }
-  
-  #timer {
-    font-size: 1.2rem;
-  }
-  
-  .game-status {
-    font-size: 0.7rem;
-  }
-  
-  #winner-text {
-    font-size: 2rem;
-  }
-  
-  .score-large {
-    font-size: 3rem;
-  }
-  
-  .game-container {
-    padding: 0.5rem;
-  }
-}
-
-/* ローディング画面 */
-.loading-screen {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.loading-spinner {
-  width: 60px;
-  height: 60px;
-  border: 4px solid rgba(255,255,255,0.1);
-  border-radius: 50%;
-  border-top-color: var(--primary-color);
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.loading-text {
-  margin-top: 1rem;
-  font-size: 1.2rem;
-  opacity: 0.7;
-}
+  .team-info h3
