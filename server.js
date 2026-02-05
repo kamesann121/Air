@@ -9,7 +9,7 @@ const path = require('path');
 
 const authRoutes = require('./routes/auth');
 const friendRoutes = require('./routes/friends');
-const setupSocket = require('./socket/gameSocket');
+const setupSocket = require('./socket/sessionSocket');
 
 const app = express();
 const server = http.createServer(app);
