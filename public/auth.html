@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In - Physics Platform</title>
+  <link rel="stylesheet" href="/css/auth.css">
+</head>
+<body>
+  <div class="auth-container">
+    <div class="auth-box">
+      <div class="logo-section">
+        <h1>⚛️ Physics Platform</h1>
+        <p>Interactive Learning Environment</p>
+      </div>
+
+      <!-- サインアップフォーム -->
+      <div id="signup-form" class="form-container active">
+        <h2>Create Account</h2>
+        <form id="signup">
+          <div class="form-group">
+            <label for="signup-nickname">Nickname</label>
+            <input 
+              type="text" 
+              id="signup-nickname" 
+              name="nickname"
+              required 
+              minlength="1"
+              maxlength="20"
+              autocomplete="username"
+              placeholder="Enter your nickname"
+            >
+          </div>
+          
+          <div class="form-group">
+            <label for="signup-password">Password</label>
+            <input 
+              type="password" 
+              id="signup-password" 
+              name="password"
+              required 
+              minlength="4"
+              autocomplete="new-password"
+              placeholder="At least 4 characters"
+            >
+          </div>
+
+          <button type="submit" class="btn btn-primary">
+            <span class="btn-text">Create Account</span>
+            <span class="btn-loading" style="display: none;">
+              <span class="loading-spinner"></span> Creating...
+            </span>
+          </button>
+        </form>
+        
+        <p class="toggle-text">
+          Already have an account? 
+          <a href="#" id="show-login">Log In</a>
+        </p>
+      </div>
+
+      <!-- ログインフォーム -->
+      <div id="login-form" class="form-container">
+        <h2>Welcome Back</h2>
+        <form id="login">
+          <div class="form-group">
+            <label for="login-nickname">Nickname</label>
+            <input 
+              type="text" 
+              id="login-nickname" 
+              name="nickname"
+              required
+              autocomplete="username"
+              placeholder="Enter your nickname"
+            >
+          </div>
+          
+          <div class="form-group">
+            <label for="login-password">Password</label>
+            <input 
+              type="password" 
+              id="login-password" 
+              name="password"
+              required
+              autocomplete="current-password"
+              placeholder="Enter your password"
+            >
+          </div>
+
+          <button type="submit" class="btn btn-primary">
+            <span class="btn-text">Log In</span>
+            <span class="btn-loading" style="display: none;">
+              <span class="loading-spinner"></span> Logging in...
+            </span>
+          </button>
+        </form>
+        
+        <p class="toggle-text">
+          Don't have an account? 
+          <a href="#" id="show-signup">Create Account</a>
+        </p>
+      </div>
+
+      <div id="error-message" class="error-message"></div>
+    </div>
+  </div>
+
+  <script src="/js/fingerprint.js"></script>
+  <script src="/js/auth.js"></script>
+</body>
+</html>
