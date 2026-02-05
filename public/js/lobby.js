@@ -1,523 +1,698 @@
-// lobby.js - ロビー、マッチメイキング、パーティー機能のクライアント側処理
+const API_BASE = window.location.origin;
+let socket;
+let currentUser = null;
+let currentParty = null;
+let pendingInvite = null;
 
-class LobbyManager {
-  constructor(socket) {
-    this.socket = socket;
-    this.currentParty = null;
-    this.friendsList = [];
-    this.onlineFriends = new Set();
-    this.inQueue = false;
-    
-    this.setupSocketListeners();
-    this.setupUIListeners();
-    this.loadFriends();
+// 認証チェック
+async function checkAuth() {
+  const token = localStorage.getItem('token');
+  const userStr = localStorage.getItem('user');
+  
+  if (!token || !userStr) {
+    window.location.href = '/auth.html';
+    return null;
   }
   
-  setupSocketListeners() {
-    // フレンドリスト受信
-    this.socket.on('friends_list', (friends) => {
-      this.friendsList = friends;
-      this.renderFriendsList();
+  try {
+    const response = await fetch(`${API_BASE}/api/auth/verify`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      credentials: 'include'
     });
     
-    // フレンドがオンラインになった
-    this.socket.on('friend_online', (friendId) => {
-      this.onlineFriends.add(friendId);
-      this.updateFriendStatus(friendId, true);
-    });
-    
-    // フレンドがオフラインになった
-    this.socket.on('friend_offline', (friendId) => {
-      this.onlineFriends.delete(friendId);
-      this.updateFriendStatus(friendId, false);
-    });
-    
-    // フレンドリクエスト受信
-    this.socket.on('friend_request', (data) => {
-      this.showFriendRequest(data);
-    });
-    
-    // フレンドリクエスト承認
-    this.socket.on('friend_added', (friend) => {
-      this.friendsList.push(friend);
-      this.renderFriendsList();
-      this.showNotification(`${friend.username}とフレンドになりました！`);
-    });
-    
-    // パーティー招待受信
-    this.socket.on('party_invite', (data) => {
-      this.showPartyInvite(data);
-    });
-    
-    // パーティー参加成功
-    this.socket.on('party_joined', (party) => {
-      this.currentParty = party;
-      this.renderParty();
-      this.showNotification('パーティーに参加しました');
-    });
-    
-    // パーティー更新
-    this.socket.on('party_updated', (party) => {
-      this.currentParty = party;
-      this.renderParty();
-    });
-    
-    // パーティー退出
-    this.socket.on('left_party', () => {
-      this.currentParty = null;
-      this.renderParty();
-      this.showNotification('パーティーから退出しました');
-    });
-    
-    // マッチメイキングキュー参加
-    this.socket.on('queue_joined', () => {
-      this.inQueue = true;
-      this.updateQueueStatus(true);
-      this.showNotification('マッチメイキング中...');
-    });
-    
-    // マッチメイキングキュー退出
-    this.socket.on('queue_left', () => {
-      this.inQueue = false;
-      this.updateQueueStatus(false);
-    });
-    
-    // セッション開始
-    this.socket.on('session_start', (sessionData) => {
-      this.startGame(sessionData);
-    });
-    
-    // エラー
-    this.socket.on('error', (message) => {
-      this.showNotification(message, 'error');
-    });
-  }
-  
-  setupUIListeners() {
-    // ソロキューボタン
-    const soloQueueBtn = document.getElementById('solo-queue-btn');
-    if (soloQueueBtn) {
-      soloQueueBtn.addEventListener('click', () => {
-        if (this.inQueue) {
-          this.leaveSoloQueue();
-        } else {
-          this.joinSoloQueue();
-        }
-      });
+    if (!response.ok) {
+      throw new Error('Auth failed');
     }
     
-    // パーティー作成ボタン
-    const createPartyBtn = document.getElementById('create-party-btn');
-    if (createPartyBtn) {
-      createPartyBtn.addEventListener('click', () => {
-        this.showPartyCreationDialog();
-      });
-    }
+    const data = await response.json();
+    currentUser = data.user;
+    localStorage.setItem('user', JSON.stringify(currentUser));
     
-    // パーティー退出ボタン
-    const leavePartyBtn = document.getElementById('leave-party-btn');
-    if (leavePartyBtn) {
-      leavePartyBtn.addEventListener('click', () => {
-        this.leaveParty();
-      });
-    }
-    
-    // 準備完了トグルボタン
-    const readyBtn = document.getElementById('ready-btn');
-    if (readyBtn) {
-      readyBtn.addEventListener('click', () => {
-        this.toggleReady();
-      });
-    }
-    
-    // フレンド追加ボタン
-    const addFriendBtn = document.getElementById('add-friend-btn');
-    if (addFriendBtn) {
-      addFriendBtn.addEventListener('click', () => {
-        this.showAddFriendDialog();
-      });
-    }
-    
-    // プロフィールボタン
-    const profileBtn = document.getElementById('profile-btn');
-    if (profileBtn) {
-      profileBtn.addEventListener('click', () => {
-        this.showProfile();
-      });
-    }
-  }
-  
-  loadFriends() {
-    this.socket.emit('get_friends');
-  }
-  
-  renderFriendsList() {
-    const friendsListElement = document.getElementById('friends-list');
-    if (!friendsListElement) return;
-    
-    friendsListElement.innerHTML = '';
-    
-    if (this.friendsList.length === 0) {
-      friendsListElement.innerHTML = '<p class="no-friends">フレンドがいません</p>';
-      return;
-    }
-    
-    this.friendsList.forEach(friend => {
-      const friendElement = document.createElement('div');
-      friendElement.className = 'friend-item';
-      
-      const isOnline = this.onlineFriends.has(friend._id);
-      const statusClass = isOnline ? 'online' : 'offline';
-      const statusText = isOnline ? 'オンライン' : 'オフライン';
-      
-      friendElement.innerHTML = `
-        <div class="friend-info">
-          <div class="friend-avatar">
-            <img src="${friend.avatar || '/images/default-avatar.png'}" alt="${friend.username}">
-            <span class="status-indicator ${statusClass}"></span>
-          </div>
-          <div class="friend-details">
-            <h4>${friend.username}</h4>
-            <p class="friend-status">${statusText}</p>
-          </div>
-        </div>
-        <div class="friend-actions">
-          ${isOnline ? `
-            <button class="btn btn-sm btn-primary invite-btn" data-friend-id="${friend._id}">
-              招待
-            </button>
-          ` : ''}
-          <button class="btn btn-sm btn-secondary remove-btn" data-friend-id="${friend._id}">
-            削除
-          </button>
-        </div>
-      `;
-      
-      // 招待ボタンのイベントリスナー
-      const inviteBtn = friendElement.querySelector('.invite-btn');
-      if (inviteBtn) {
-        inviteBtn.addEventListener('click', () => {
-          this.inviteToParty(friend._id);
-        });
-      }
-      
-      // 削除ボタンのイベントリスナー
-      const removeBtn = friendElement.querySelector('.remove-btn');
-      if (removeBtn) {
-        removeBtn.addEventListener('click', () => {
-          this.removeFriend(friend._id);
-        });
-      }
-      
-      friendsListElement.appendChild(friendElement);
-    });
-  }
-  
-  updateFriendStatus(friendId, isOnline) {
-    const friendElement = document.querySelector(`[data-friend-id="${friendId}"]`);
-    if (!friendElement) return;
-    
-    const statusIndicator = friendElement.querySelector('.status-indicator');
-    const statusText = friendElement.querySelector('.friend-status');
-    
-    if (isOnline) {
-      statusIndicator.classList.remove('offline');
-      statusIndicator.classList.add('online');
-      statusText.textContent = 'オンライン';
-    } else {
-      statusIndicator.classList.remove('online');
-      statusIndicator.classList.add('offline');
-      statusText.textContent = 'オフライン';
-    }
-  }
-  
-  renderParty() {
-    const partyElement = document.getElementById('party-info');
-    if (!partyElement) return;
-    
-    if (!this.currentParty) {
-      partyElement.innerHTML = '<p class="no-party">パーティーに参加していません</p>';
-      
-      // ボタンの表示を更新
-      document.getElementById('leave-party-btn')?.classList.add('hidden');
-      document.getElementById('ready-btn')?.classList.add('hidden');
-      return;
-    }
-    
-    const userId = localStorage.getItem('userId');
-    const isLeader = this.currentParty.leader === userId;
-    
-    partyElement.innerHTML = `
-      <div class="party-header">
-        <h3>パーティー (${this.currentParty.members.length}/${this.currentParty.maxSize})</h3>
-        ${isLeader ? '<span class="leader-badge">リーダー</span>' : ''}
-      </div>
-      <div class="party-members">
-        ${this.currentParty.memberDetails.map(member => {
-          const isReady = this.currentParty.readyStatus[member._id] || false;
-          const isCurrentUser = member._id === userId;
-          
-          return `
-            <div class="party-member ${isReady ? 'ready' : ''}">
-              <div class="member-avatar">
-                <img src="${member.avatar || '/images/default-avatar.png'}" alt="${member.username}">
-                ${isReady ? '<span class="ready-badge">✓</span>' : ''}
-              </div>
-              <div class="member-info">
-                <h4>${member.username} ${isCurrentUser ? '(あなた)' : ''}</h4>
-                <p>${isReady ? '準備完了' : '準備中'}</p>
-              </div>
-              ${isLeader && !isCurrentUser ? `
-                <button class="btn btn-sm btn-danger kick-btn" data-member-id="${member._id}">
-                  キック
-                </button>
-              ` : ''}
-            </div>
-          `;
-        }).join('')}
-      </div>
-    `;
-    
-    // キックボタンのイベントリスナー
-    partyElement.querySelectorAll('.kick-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const memberId = e.target.dataset.memberId;
-        this.kickMember(memberId);
-      });
-    });
-    
-    // ボタンの表示を更新
-    document.getElementById('leave-party-btn')?.classList.remove('hidden');
-    document.getElementById('ready-btn')?.classList.remove('hidden');
-    
-    // 準備完了ボタンのテキスト更新
-    const readyBtn = document.getElementById('ready-btn');
-    if (readyBtn) {
-      const isReady = this.currentParty.readyStatus[userId] || false;
-      readyBtn.textContent = isReady ? '準備解除' : '準備完了';
-      readyBtn.classList.toggle('ready', isReady);
-    }
-  }
-  
-  showPartyCreationDialog() {
-    const dialog = document.createElement('div');
-    dialog.className = 'modal';
-    dialog.innerHTML = `
-      <div class="modal-content">
-        <h3>パーティーを作成</h3>
-        <div class="form-group">
-          <label>最大人数:</label>
-          <select id="party-size-select">
-            <option value="2">2人 (1v1)</option>
-            <option value="4">4人 (2v2)</option>
-          </select>
-        </div>
-        <div class="modal-actions">
-          <button class="btn btn-primary" id="confirm-create-party">作成</button>
-          <button class="btn btn-secondary" id="cancel-create-party">キャンセル</button>
-        </div>
-      </div>
-    `;
-    
-    document.body.appendChild(dialog);
-    
-    document.getElementById('confirm-create-party').addEventListener('click', () => {
-      const maxSize = parseInt(document.getElementById('party-size-select').value);
-      this.createParty(maxSize);
-      document.body.removeChild(dialog);
-    });
-    
-    document.getElementById('cancel-create-party').addEventListener('click', () => {
-      document.body.removeChild(dialog);
-    });
-  }
-  
-  createParty(maxSize) {
-    this.socket.emit('create_party', { maxSize });
-  }
-  
-  inviteToParty(friendId) {
-    if (!this.currentParty) {
-      this.showNotification('パーティーを作成してください', 'error');
-      return;
-    }
-    
-    this.socket.emit('invite_to_party', { friendId });
-    this.showNotification('招待を送信しました');
-  }
-  
-  showPartyInvite(data) {
-    const dialog = document.createElement('div');
-    dialog.className = 'modal';
-    dialog.innerHTML = `
-      <div class="modal-content">
-        <h3>パーティー招待</h3>
-        <p>${data.inviterName}があなたをパーティーに招待しています</p>
-        <div class="modal-actions">
-          <button class="btn btn-primary" id="accept-invite">参加</button>
-          <button class="btn btn-secondary" id="decline-invite">拒否</button>
-        </div>
-      </div>
-    `;
-    
-    document.body.appendChild(dialog);
-    
-    document.getElementById('accept-invite').addEventListener('click', () => {
-      this.socket.emit('join_party', { partyId: data.partyId });
-      document.body.removeChild(dialog);
-    });
-    
-    document.getElementById('decline-invite').addEventListener('click', () => {
-      document.body.removeChild(dialog);
-    });
-    
-    // 30秒後に自動的に閉じる
-    setTimeout(() => {
-      if (document.body.contains(dialog)) {
-        document.body.removeChild(dialog);
-      }
-    }, 30000);
-  }
-  
-  leaveParty() {
-    this.socket.emit('leave_party');
-  }
-  
-  toggleReady() {
-    this.socket.emit('toggle_ready');
-  }
-  
-  kickMember(memberId) {
-    this.socket.emit('kick_member', { memberId });
-  }
-  
-  joinSoloQueue() {
-    this.socket.emit('join_solo_queue');
-  }
-  
-  leaveSoloQueue() {
-    this.socket.emit('leave_solo_queue');
-  }
-  
-  updateQueueStatus(inQueue) {
-    const soloQueueBtn = document.getElementById('solo-queue-btn');
-    if (!soloQueueBtn) return;
-    
-    if (inQueue) {
-      soloQueueBtn.textContent = 'キャンセル';
-      soloQueueBtn.classList.add('in-queue');
-    } else {
-      soloQueueBtn.textContent = 'ソロマッチ';
-      soloQueueBtn.classList.remove('in-queue');
-    }
-  }
-  
-  showAddFriendDialog() {
-    const dialog = document.createElement('div');
-    dialog.className = 'modal';
-    dialog.innerHTML = `
-      <div class="modal-content">
-        <h3>フレンドを追加</h3>
-        <div class="form-group">
-          <label>ユーザー名:</label>
-          <input type="text" id="friend-username-input" placeholder="ユーザー名を入力">
-        </div>
-        <div class="modal-actions">
-          <button class="btn btn-primary" id="send-friend-request">送信</button>
-          <button class="btn btn-secondary" id="cancel-friend-request">キャンセル</button>
-        </div>
-      </div>
-    `;
-    
-    document.body.appendChild(dialog);
-    
-    document.getElementById('send-friend-request').addEventListener('click', () => {
-      const username = document.getElementById('friend-username-input').value.trim();
-      if (username) {
-        this.sendFriendRequest(username);
-        document.body.removeChild(dialog);
-      }
-    });
-    
-    document.getElementById('cancel-friend-request').addEventListener('click', () => {
-      document.body.removeChild(dialog);
-    });
-  }
-  
-  sendFriendRequest(username) {
-    this.socket.emit('send_friend_request', { username });
-    this.showNotification('フレンドリクエストを送信しました');
-  }
-  
-  showFriendRequest(data) {
-    const dialog = document.createElement('div');
-    dialog.className = 'modal';
-    dialog.innerHTML = `
-      <div class="modal-content">
-        <h3>フレンドリクエスト</h3>
-        <p>${data.fromUsername}からフレンドリクエストが届いています</p>
-        <div class="modal-actions">
-          <button class="btn btn-primary" id="accept-friend-request">承認</button>
-          <button class="btn btn-secondary" id="decline-friend-request">拒否</button>
-        </div>
-      </div>
-    `;
-    
-    document.body.appendChild(dialog);
-    
-    document.getElementById('accept-friend-request').addEventListener('click', () => {
-      this.socket.emit('accept_friend_request', { requestId: data.requestId });
-      document.body.removeChild(dialog);
-    });
-    
-    document.getElementById('decline-friend-request').addEventListener('click', () => {
-      this.socket.emit('decline_friend_request', { requestId: data.requestId });
-      document.body.removeChild(dialog);
-    });
-  }
-  
-  removeFriend(friendId) {
-    if (confirm('本当にこのフレンドを削除しますか？')) {
-      this.socket.emit('remove_friend', { friendId });
-    }
-  }
-  
-  showProfile() {
-    // プロフィール画面への遷移
-    window.location.href = '/profile.html';
-  }
-  
-  startGame(sessionData) {
-    // セッションデータをローカルストレージに保存
-    localStorage.setItem('sessionData', JSON.stringify(sessionData));
-    
-    // アプリ画面に遷移
-    window.location.href = '/simulation.html';
-  }
-  
-  showNotification(message, type = 'info') {
-    const notification = document.createElement('div');
-    notification.className = `notification notification-${type}`;
-    notification.textContent = message;
-    
-    document.body.appendChild(notification);
-    
-    // アニメーション
-    setTimeout(() => {
-      notification.classList.add('show');
-    }, 10);
-    
-    // 3秒後に削除
-    setTimeout(() => {
-      notification.classList.remove('show');
-      setTimeout(() => {
-        if (document.body.contains(notification)) {
-          document.body.removeChild(notification);
-        }
-      }, 300);
-    }, 3000);
+    return currentUser;
+  } catch (error) {
+    console.error('Auth check failed:', error);
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = '/auth.html';
+    return null;
   }
 }
 
-// グローバルに公開
-window.LobbyManager = LobbyManager;
+// 初期化
+async function init() {
+  const user = await checkAuth();
+  if (!user) return;
+  
+  // UI更新
+  document.getElementById('user-nickname').textContent = user.nickname;
+  document.getElementById('user-avatar').textContent = user.avatar;
+  document.getElementById('user-uid').textContent = user.uid;
+  document.getElementById('edit-nickname').value = user.nickname;
+  
+  // 統計表示
+  updateStats(user.stats);
+  
+  // アバター選択状態
+  document.querySelectorAll('.avatar-option').forEach(btn => {
+    if (btn.dataset.avatar === user.avatar) {
+      btn.classList.add('selected');
+    }
+  });
+  
+  // Socket.IO接続
+  connectSocket();
+  
+  // フレンドリストを読み込み
+  loadFriends();
+  
+  // フレンド申請を読み込み
+  loadFriendRequests();
+  
+  // イベントリスナー設定
+  setupEventListeners();
+}
+
+// Socket.IO接続
+function connectSocket() {
+  socket = io(API_BASE, {
+    auth: {
+      token: localStorage.getItem('token')
+    }
+  });
+  
+  socket.on('connect', () => {
+    console.log('Socket connected');
+    socket.emit('authenticate', currentUser._id);
+  });
+  
+  socket.on('authenticated', (data) => {
+    console.log('Authenticated:', data);
+  });
+  
+  socket.on('disconnect', () => {
+    console.log('Socket disconnected');
+  });
+  
+  // フレンドオンライン/オフライン
+  socket.on('friend_online', (userId) => {
+    updateFriendOnlineStatus(userId, true);
+  });
+  
+  socket.on('friend_offline', (userId) => {
+    updateFriendOnlineStatus(userId, false);
+  });
+  
+  // パーティー関連
+  socket.on('party_created', (party) => {
+    currentParty = party;
+    showPartyUI();
+  });
+  
+  socket.on('party_updated', (party) => {
+    currentParty = party;
+    updatePartyUI(party);
+  });
+  
+  socket.on('party_invite', (invite) => {
+    pendingInvite = invite;
+    showInviteModal(invite);
+  });
+  
+  socket.on('left_party', () => {
+    currentParty = null;
+    showSoloUI();
+  });
+  
+  // キュー関連
+  socket.on('queue_joined', () => {
+    showQueueStatus(true);
+  });
+  
+  socket.on('queue_left', () => {
+    showQueueStatus(false);
+  });
+  
+  // セッション開始
+  socket.on('session_start', (sessionData) => {
+    console.log('Session starting:', sessionData);
+    // セッション画面へ遷移
+    localStorage.setItem('sessionData', JSON.stringify(sessionData));
+    window.location.href = '/simulation.html';
+  });
+  
+  socket.on('error', (message) => {
+    showNotification(message, 'error');
+  });
+}
+
+// イベントリスナー設定
+function setupEventListeners() {
+  // 設定モーダル
+  document.getElementById('settings-btn').addEventListener('click', () => {
+    document.getElementById('settings-modal').classList.add('show');
+  });
+  
+  document.getElementById('close-settings').addEventListener('click', () => {
+    document.getElementById('settings-modal').classList.remove('show');
+  });
+  
+  // タブ切り替え
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabName = btn.dataset.tab;
+      
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      
+      btn.classList.add('active');
+      document.getElementById(`${tabName}-tab`).classList.add('active');
+    });
+  });
+  
+  // プロフィール保存
+  document.getElementById('save-profile').addEventListener('click', saveProfile);
+  
+  // ログアウト
+  document.getElementById('logout-btn').addEventListener('click', logout);
+  
+  // アバター選択
+  document.querySelectorAll('.avatar-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.avatar-option').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    });
+  });
+  
+  // UID コピー
+  document.getElementById('copy-uid').addEventListener('click', () => {
+    const uid = document.getElementById('user-uid').textContent;
+    navigator.clipboard.writeText(uid).then(() => {
+      showNotification('UID copied to clipboard!', 'success');
+    });
+  });
+  
+  // フレンド追加
+  document.getElementById('add-friend-form').addEventListener('submit', addFriend);
+  
+  // フレンド更新
+  document.getElementById('refresh-friends').addEventListener('click', loadFriends);
+  
+  // パーティー作成
+  document.getElementById('create-party-2').addEventListener('click', () => createParty(2));
+  document.getElementById('create-party-4').addEventListener('click', () => createParty(4));
+  
+  // パーティー退出
+  document.getElementById('leave-party').addEventListener('click', leaveParty);
+  
+  // 準備トグル
+  document.getElementById('toggle-ready').addEventListener('click', toggleReady);
+  
+  // ソロキュー
+  document.getElementById('join-solo-queue').addEventListener('click', joinSoloQueue);
+  document.getElementById('leave-solo-queue').addEventListener('click', leaveSoloQueue);
+  
+  // 招待モーダル
+  document.getElementById('close-invite').addEventListener('click', () => {
+    document.getElementById('invite-modal').classList.remove('show');
+  });
+  
+  document.getElementById('accept-invite').addEventListener('click', acceptInvite);
+  document.getElementById('decline-invite').addEventListener('click', declineInvite);
+}
+
+// 統計更新
+function updateStats(stats) {
+  document.getElementById('stat-wins').textContent = stats.wins || 0;
+  document.getElementById('stat-losses').textContent = stats.losses || 0;
+  
+  const total = (stats.wins || 0) + (stats.losses || 0);
+  const winRate = total > 0 ? Math.round((stats.wins / total) * 100) : 0;
+  document.getElementById('stat-winrate').textContent = `${winRate}%`;
+}
+
+// プロフィール保存
+async function saveProfile() {
+  const nickname = document.getElementById('edit-nickname').value.trim();
+  const selectedAvatar = document.querySelector('.avatar-option.selected');
+  const avatar = selectedAvatar ? selectedAvatar.dataset.avatar : currentUser.avatar;
+  
+  if (!nickname || nickname.length < 1 || nickname.length > 20) {
+    showNotification('Nickname must be 1-20 characters', 'error');
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${API_BASE}/api/auth/profile`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      credentials: 'include',
+      body: JSON.stringify({ nickname, avatar })
+    });
+    
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to update profile');
+    }
+    
+    const data = await response.json();
+    currentUser = data.user;
+    localStorage.setItem('user', JSON.stringify(currentUser));
+    
+    // UI更新
+    document.getElementById('user-nickname').textContent = currentUser.nickname;
+    document.getElementById('user-avatar').textContent = currentUser.avatar;
+    
+    showNotification('Profile updated successfully!', 'success');
+  } catch (error) {
+    console.error('Profile update error:', error);
+    showNotification(error.message, 'error');
+  }
+}
+
+// ログアウト
+async function logout() {
+  try {
+    await fetch(`${API_BASE}/api/auth/logout`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      credentials: 'include'
+    });
+  } catch (error) {
+    console.error('Logout error:', error);
+  }
+  
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+  
+  if (socket) {
+    socket.disconnect();
+  }
+  
+  window.location.href = '/auth.html';
+}
+
+// フレンドリスト読み込み
+async function loadFriends() {
+  try {
+    const response = await fetch(`${API_BASE}/api/friends`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      credentials: 'include'
+    });
+    
+    if (!response.ok) throw new Error('Failed to load friends');
+    
+    const data = await response.json();
+    displayFriends(data.friends);
+  } catch (error) {
+    console.error('Load friends error:', error);
+  }
+}
+
+// フレンド表示
+function displayFriends(friends) {
+  const friendsList = document.getElementById('friends-list');
+  
+  if (!friends || friends.length === 0) {
+    friendsList.innerHTML = `
+      <div class="empty-state">
+        <p>No friends yet</p>
+        <p class="hint">Use settings to add friends</p>
+      </div>
+    `;
+    return;
+  }
+  
+  friendsList.innerHTML = friends.map(friend => `
+    <div class="friend-item" data-user-id="${friend._id}">
+      <div class="friend-info">
+        <span class="friend-avatar">${friend.avatar}</span>
+        <div class="friend-details">
+          <h4>${friend.nickname}</h4>
+          <p>UID: ${friend.uid}</p>
+        </div>
+      </div>
+      <div class="friend-actions">
+        <div class="online-status" id="status-${friend._id}"></div>
+        <button class="btn btn-primary btn-sm" onclick="inviteFriend('${friend._id}')">
+          Invite
+        </button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// フレンドオンライン状態更新
+function updateFriendOnlineStatus(userId, isOnline) {
+  const statusEl = document.getElementById(`status-${userId}`);
+  if (statusEl) {
+    if (isOnline) {
+      statusEl.classList.add('online');
+    } else {
+      statusEl.classList.remove('online');
+    }
+  }
+}
+
+// フレンド招待
+function inviteFriend(friendId) {
+  if (!currentParty) {
+    showNotification('Create a party first!', 'error');
+    return;
+  }
+  
+  socket.emit('invite_to_party', { targetUserId: friendId });
+  showNotification('Invitation sent!', 'success');
+}
+
+// フレンド追加
+async function addFriend(e) {
+  e.preventDefault();
+  
+  const searchTerm = document.getElementById('friend-search').value.trim();
+  const resultDiv = document.getElementById('add-friend-result');
+  
+  if (!searchTerm) {
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${API_BASE}/api/friends/request`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      credentials: 'include',
+      body: JSON.stringify({ searchTerm })
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to send request');
+    }
+    
+    resultDiv.textContent = 'Friend request sent successfully!';
+    resultDiv.className = 'result-message success show';
+    
+    document.getElementById('friend-search').value = '';
+    
+    setTimeout(() => {
+      resultDiv.classList.remove('show');
+    }, 3000);
+    
+  } catch (error) {
+    console.error('Add friend error:', error);
+    resultDiv.textContent = error.message;
+    resultDiv.className = 'result-message error show';
+  }
+}
+
+// フレンド申請読み込み
+async function loadFriendRequests() {
+  try {
+    const [receivedRes, sentRes] = await Promise.all([
+      fetch(`${API_BASE}/api/friends/requests/received`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        credentials: 'include'
+      }),
+      fetch(`${API_BASE}/api/friends/requests/sent`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        credentials: 'include'
+      })
+    ]);
+    
+    const receivedData = await receivedRes.json();
+    const sentData = await sentRes.json();
+    
+    displayReceivedRequests(receivedData.requests);
+    displaySentRequests(sentData.requests);
+    
+    // バッジ更新
+    const badge = document.getElementById('requests-badge');
+    if (receivedData.requests.length > 0) {
+      badge.textContent = receivedData.requests.length;
+      badge.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
+    }
+    
+  } catch (error) {
+    console.error('Load requests error:', error);
+  }
+}
+
+// 受信リクエスト表示
+function displayReceivedRequests(requests) {
+  const container = document.getElementById('received-requests');
+  
+  if (!requests || requests.length === 0) {
+    container.innerHTML = '<p class="empty-state">No pending requests</p>';
+    return;
+  }
+  
+  container.innerHTML = requests.map(req => `
+    <div class="request-item">
+      <div class="request-user">
+        <span class="request-avatar">${req.from.avatar}</span>
+        <div class="request-details">
+          <h4>${req.from.nickname}</h4>
+          <p>UID: ${req.from.uid}</p>
+        </div>
+      </div>
+      <div class="request-actions">
+        <button class="btn btn-primary" onclick="acceptRequest('${req._id}')">Accept</button>
+        <button class="btn btn-secondary" onclick="rejectRequest('${req._id}')">Reject</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// 送信リクエスト表示
+function displaySentRequests(requests) {
+  const container = document.getElementById('sent-requests');
+  
+  if (!requests || requests.length === 0) {
+    container.innerHTML = '<p class="empty-state">No pending requests</p>';
+    return;
+  }
+  
+  container.innerHTML = requests.map(req => `
+    <div class="request-item">
+      <div class="request-user">
+        <span class="request-avatar">${req.to.avatar}</span>
+        <div class="request-details">
+          <h4>${req.to.nickname}</h4>
+          <p>UID: ${req.to.uid}</p>
+        </div>
+      </div>
+      <div class="request-actions">
+        <span style="color: var(--text-muted); font-size: 0.9rem;">Pending...</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+// リクエスト承認
+async function acceptRequest(requestId) {
+  try {
+    const response = await fetch(`${API_BASE}/api/friends/request/${requestId}/accept`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      credentials: 'include'
+    });
+    
+    if (!response.ok) throw new Error('Failed to accept request');
+    
+    showNotification('Friend request accepted!', 'success');
+    loadFriendRequests();
+    loadFriends();
+    
+  } catch (error) {
+    console.error('Accept request error:', error);
+    showNotification(error.message, 'error');
+  }
+}
+
+// リクエスト拒否
+async function rejectRequest(requestId) {
+  try {
+    const response = await fetch(`${API_BASE}/api/friends/request/${requestId}/reject`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      credentials: 'include'
+    });
+    
+    if (!response.ok) throw new Error('Failed to reject request');
+    
+    showNotification('Friend request rejected', 'success');
+    loadFriendRequests();
+    
+  } catch (error) {
+    console.error('Reject request error:', error);
+    showNotification(error.message, 'error');
+  }
+}
+
+// パーティー作成
+function createParty(maxSize) {
+  if (currentParty) {
+    showNotification('You are already in a party', 'error');
+    return;
+  }
+  
+  socket.emit('create_party', { maxSize });
+}
+
+// パーティーUI表示
+function showPartyUI() {
+  document.getElementById('solo-matchmaking').style.display = 'none';
+  document.getElementById('party-matchmaking').style.display = 'block';
+  updatePartyUI(currentParty);
+}
+
+// ソロUI表示
+function showSoloUI() {
+  document.getElementById('solo-matchmaking').style.display = 'block';
+  document.getElementById('party-matchmaking').style.display = 'none';
+}
+
+// パーティーUI更新
+function updatePartyUI(party) {
+  const membersContainer = document.getElementById('party-members');
+  const statusContainer = document.getElementById('party-status');
+  
+  // メンバー表示
+  membersContainer.innerHTML = party.members.map(memberId => {
+    const isReady = party.readyStatus[memberId];
+    const isLeader = memberId === party.leaderId;
+    const isSelf = memberId === currentUser._id;
+    
+    return `
+      <div class="party-member">
+        <div class="member-info">
+          <span>${isSelf ? 'You' : 'Member'}</span>
+          ${isLeader ? '<span class="member-status leader">Leader</span>' : ''}
+          ${isReady ? '<span class="member-status ready">Ready</span>' : '<span class="member-status not-ready">Not Ready</span>'}
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  // ステータス更新
+  const allReady = Object.values(party.readyStatus).every(r => r === true);
+  const isFull = party.members.length === party.maxSize;
+  
+  if (allReady && isFull) {
+    statusContainer.textContent = 'All players ready! Starting session...';
+    statusContainer.style.backgroundColor = 'rgba(80, 200, 120, 0.1)';
+    statusContainer.style.borderLeftColor = 'var(--secondary-color)';
+  } else if (!isFull) {
+    statusContainer.textContent = `Waiting for ${party.maxSize - party.members.length} more player(s)...`;
+    statusContainer.style.backgroundColor = 'rgba(243, 156, 18, 0.1)';
+    statusContainer.style.borderLeftColor = 'var(--warning-color)';
+  } else {
+    statusContainer.textContent = 'Waiting for all members to be ready...';
+    statusContainer.style.backgroundColor = 'rgba(74, 144, 226, 0.1)';
+    statusContainer.style.borderLeftColor = 'var(--primary-color)';
+  }
+  
+  // 準備ボタン更新
+  const readyBtn = document.getElementById('toggle-ready');
+  const readyText = document.getElementById('ready-text');
+  const isCurrentUserReady = party.readyStatus[currentUser._id];
+  
+  if (isCurrentUserReady) {
+    readyText.textContent = 'Not Ready';
+    readyBtn.classList.remove('btn-primary');
+    readyBtn.classList.add('btn-secondary');
+  } else {
+    readyText.textContent = 'Ready';
+    readyBtn.classList.remove('btn-secondary');
+    readyBtn.classList.add('btn-primary');
+  }
+}
+
+// パーティー退出
+function leaveParty() {
+  socket.emit('leave_party');
+}
+
+// 準備トグル
+function toggleReady() {
+  socket.emit('toggle_ready');
+}
+
+// ソロキュー参加
+function joinSoloQueue() {
+  socket.emit('join_solo_queue');
+}
+
+// ソロキュー退出
+function leaveSoloQueue() {
+  socket.emit('leave_solo_queue');
+}
+
+// キューステータス表示
+function showQueueStatus(inQueue) {
+  const button = document.getElementById('join-solo-queue');
+  const status = document.getElementById('solo-queue-status');
+  
+  if (inQueue) {
+    button.style.display = 'none';
+    status.style.display = 'block';
+  } else {
+    button.style.display = 'block';
+    status.style.display = 'none';
+  }
+}
+
+// 招待モーダル表示
+function showInviteModal(invite) {
+  const modal = document.getElementById('invite-modal');
+  const message = document.getElementById('invite-message');
+  
+  message.textContent = `You have been invited to a ${invite.maxSize}-player party!`;
+  modal.classList.add('show');
+}
+
+// 招待受諾
+function acceptInvite() {
+  if (pendingInvite) {
+    socket.emit('join_party', { partyId: pendingInvite.partyId });
+    document.getElementById('invite-modal').classList.remove('show');
+    pendingInvite = null;
+  }
+}
+
+// 招待拒否
+function declineInvite() {
+  document.getElementById('invite-modal').classList.remove('show');
+  pendingInvite = null;
+}
+
+// 通知表示
+function showNotification(message, type = 'info') {
+  // 簡易的な通知（よりリッチなUIにする場合はtoastライブラリを使用）
+  alert(message);
+}
+
+// ページロード時に初期化
+document.addEventListener('DOMContentLoaded', init);
