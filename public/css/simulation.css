@@ -1,0 +1,369 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --primary-color: #4a90e2;
+  --secondary-color: #50c878;
+  --danger-color: #e74c3c;
+  --team1-color: #3498db;
+  --team2-color: #e74c3c;
+  --dark-bg: #1a1a2e;
+  --light-bg: #f5f6fa;
+  --text-dark: #2c3e50;
+  --text-light: #ecf0f1;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  background-color: #0f0f1e;
+  color: var(--text-light);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ゲームヘッダー */
+.game-header {
+  background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
+  padding: 1rem 2rem;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+
+.header-content {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.team-info {
+  text-align: center;
+}
+
+.team-info h3 {
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 0.5rem;
+  opacity: 0.8;
+}
+
+.team-1 h3 {
+  color: var(--team1-color);
+}
+
+.team-2 h3 {
+  color: var(--team2-color);
+}
+
+.score {
+  font-size: 3rem;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+}
+
+.team-1 .score {
+  color: var(--team1-color);
+}
+
+.team-2 .score {
+  color: var(--team2-color);
+}
+
+.game-timer {
+  text-align: center;
+}
+
+#timer {
+  font-size: 2rem;
+  font-weight: 600;
+  font-family: 'Courier New', monospace;
+  margin-bottom: 0.5rem;
+}
+
+.game-status {
+  font-size: 0.9rem;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* ゲームコンテナ */
+.game-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 1rem;
+}
+
+#game-canvas {
+  border: 3px solid #2d2d44;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  background: linear-gradient(135deg, #1a2332 0%, #243447 100%);
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* ゲームオーバー画面 */
+.game-over-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0,0,0,0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: fadeIn 0.5s;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.game-over-content {
+  text-align: center;
+  padding: 3rem;
+  background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  animation: slideUp 0.5s;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#winner-text {
+  font-size: 3rem;
+  margin-bottom: 2rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.final-score {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.team-score {
+  text-align: center;
+}
+
+.team-score h3 {
+  font-size: 1.2rem;
+  margin-bottom: 0.5rem;
+  opacity: 0.8;
+}
+
+.score-large {
+  font-size: 4rem;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+}
+
+.vs {
+  font-size: 2rem;
+  opacity: 0.5;
+}
+
+.btn {
+  padding: 1rem 2rem;
+  font-size: 1.1rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-weight: 600;
+}
+
+.btn-primary {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #3a7bc8;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(74, 144, 226, 0.5);
+}
+
+/* プレイヤーサイドバー */
+.players-sidebar {
+  position: fixed;
+  top: 100px;
+  right: 20px;
+  background: rgba(26, 26, 46, 0.9);
+  padding: 1rem;
+  border-radius: 12px;
+  min-width: 200px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+
+.players-sidebar h3 {
+  margin-bottom: 1rem;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  opacity: 0.8;
+}
+
+.player-item {
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  background-color: rgba(255,255,255,0.05);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.player-item.team1 {
+  border-left: 3px solid var(--team1-color);
+}
+
+.player-item.team2 {
+  border-left: 3px solid var(--team2-color);
+}
+
+/* タッチコントロール（モバイル） */
+.touch-controls {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+}
+
+.touch-area {
+  width: 150px;
+  height: 150px;
+  background: radial-gradient(circle, rgba(74, 144, 226, 0.3) 0%, rgba(74, 144, 226, 0.1) 100%);
+  border: 3px solid rgba(74, 144, 226, 0.5);
+  border-radius: 50%;
+  position: relative;
+}
+
+.touch-area::after {
+  content: '🎯';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 2rem;
+  opacity: 0.5;
+}
+
+/* レスポンシブ */
+@media (max-width: 1024px) {
+  .players-sidebar {
+    display: none;
+  }
+  
+  .header-content {
+    grid-template-columns: 1fr auto 1fr;
+    gap: 1rem;
+  }
+  
+  .score {
+    font-size: 2rem;
+  }
+  
+  #timer {
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .game-header {
+    padding: 0.8rem 1rem;
+  }
+  
+  .header-content {
+    gap: 0.5rem;
+  }
+  
+  .team-info h3 {
+    font-size: 0.7rem;
+  }
+  
+  .score {
+    font-size: 1.5rem;
+  }
+  
+  #timer {
+    font-size: 1.2rem;
+  }
+  
+  .game-status {
+    font-size: 0.7rem;
+  }
+  
+  #winner-text {
+    font-size: 2rem;
+  }
+  
+  .score-large {
+    font-size: 3rem;
+  }
+  
+  .game-container {
+    padding: 0.5rem;
+  }
+}
+
+/* ローディング画面 */
+.loading-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.loading-spinner {
+  width: 60px;
+  height: 60px;
+  border: 4px solid rgba(255,255,255,0.1);
+  border-radius: 50%;
+  border-top-color: var(--primary-color);
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  margin-top: 1rem;
+  font-size: 1.2rem;
+  opacity: 0.7;
+}
