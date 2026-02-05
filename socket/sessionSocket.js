@@ -11,8 +11,8 @@ const userToParty = new Map(); // userId -> partyId
 // マッチメイキング待機キュー
 const soloQueue = new Set(); // userId (野良1v1待ち)
 
-// 進行中のゲーム
-const activeSessions = new Map(); // sessionId -> Game object
+// 進行中のセッション
+const activeSessions = new Map(); // sessionId -> Session object
 
 class Party {
   constructor(leaderId, maxSize) {
@@ -71,7 +71,7 @@ class Session {
   constructor(players, mode) {
     this.id = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     this.mode = mode; // '1v1' or '2v2'
-    this.players = players; // [userId1, userId2] or [userId1, userId2, userId3, userId4]
+    this.players = players;
     this.teams = this.assignTeams();
     this.scores = { team1: 0, team2: 0 };
     this.sessionState = this.initSessionState();
@@ -103,7 +103,7 @@ class Session {
   }
 
   updateSessionState(data) {
-    // ゲーム状態の更新処理
+    // セッション状態の更新処理
     this.sessionState = { ...this.sessionState, ...data };
   }
 
@@ -270,7 +270,7 @@ module.exports = (io) => {
 
       io.to(partyId).emit('party_updated', party.getStatus());
 
-      // 全員準備OKならゲーム開始
+      // 全員準備OKならセッション開始
       if (party.isAllReady()) {
         startPartySession(party);
       }
@@ -303,14 +303,14 @@ module.exports = (io) => {
       socket.emit('queue_left');
     });
 
-    // ゲーム中の状態更新
+    // セッション中の状態更新
     socket.on('session_update', (data) => {
       const userId = socketToUser.get(socket.id);
       const session = activeSessions.get(data.sessionId);
       
       if (!session || !session.players.includes(userId)) return;
 
-      // ゲーム状態を更新
+      // セッション状態を更新
       if (data.type === 'mallet_move') {
         session.sessionState.mallets[userId] = data.position;
       } else if (data.type === 'puck_update') {
@@ -343,7 +343,7 @@ module.exports = (io) => {
         }
       });
 
-      // ゲーム終了判定（例: 7点先取）
+      // セッション終了判定（例: 7点先取）
       if (session.scores.team1 >= 7 || session.scores.team2 >= 7) {
         endSession(session);
       }
@@ -406,7 +406,7 @@ module.exports = (io) => {
         // キューから削除
         players.forEach(userId => soloQueue.delete(userId));
 
-        // ゲーム開始通知
+        // セッション開始通知
         players.forEach(userId => {
           const socketId = onlineUsers.get(userId);
           if (socketId) {
@@ -421,14 +421,14 @@ module.exports = (io) => {
       }
     }
 
-    // パーティーゲーム開始
+    // パーティーセッション開始
     function startPartySession(party) {
       const mode = party.maxSize === 2 ? '1v1' : '2v2';
       const session = new Session(party.members, mode);
       
       activeSessions.set(session.id, session);
 
-      // パーティー全員にゲーム開始通知
+      // パーティー全員にセッション開始通知
       io.to(party.id).emit('session_start', {
         sessionId: session.id,
         mode: session.mode,
@@ -443,7 +443,7 @@ module.exports = (io) => {
       });
     }
 
-    // ゲーム終了処理
+    // セッション終了処理
     async function endSession(session) {
       const winner = session.scores.team1 > session.scores.team2 ? 'team1' : 'team2';
       
@@ -477,7 +477,7 @@ module.exports = (io) => {
         }
       });
 
-      // ゲームを削除
+      // セッションを削除
       activeSessions.delete(session.id);
     }
   });
