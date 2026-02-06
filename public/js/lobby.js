@@ -47,19 +47,14 @@ async function init() {
   
   // UI更新
   document.getElementById('user-nickname').textContent = user.nickname;
-  document.getElementById('user-avatar').textContent = user.avatar;
   document.getElementById('user-uid').textContent = user.uid;
   document.getElementById('edit-nickname').value = user.nickname;
   
+  // アバター表示（画像URL対応）
+  updateAvatarDisplay(user.avatar);
+  
   // 統計表示
   updateStats(user.stats);
-  
-  // アバター選択状態
-  document.querySelectorAll('.avatar-option').forEach(btn => {
-    if (btn.dataset.avatar === user.avatar) {
-      btn.classList.add('selected');
-    }
-  });
   
   // Socket.IO接続
   connectSocket();
@@ -134,10 +129,10 @@ function connectSocket() {
     showQueueStatus(false);
   });
   
-  // セッション開始
+  // ゲーム開始
   socket.on('session_start', (sessionData) => {
-    console.log('Session starting:', sessionData);
-    // セッション画面へ遷移
+    console.log('Game starting:', sessionData);
+    // ゲーム画面へ遷移
     localStorage.setItem('sessionData', JSON.stringify(sessionData));
     window.location.href = '/simulation.html';
   });
@@ -149,14 +144,14 @@ function connectSocket() {
 
 // イベントリスナー設定
 function setupEventListeners() {
-  // 設定モーダル
+  // 設定パネル開閉
   document.getElementById('settings-btn').addEventListener('click', () => {
-    document.getElementById('settings-modal').classList.add('show');
+    document.getElementById('settings-panel').classList.add('open');
+    document.getElementById('settings-overlay').classList.add('show');
   });
   
-  document.getElementById('close-settings').addEventListener('click', () => {
-    document.getElementById('settings-modal').classList.remove('show');
-  });
+  document.getElementById('close-settings').addEventListener('click', closeSettings);
+  document.getElementById('settings-overlay').addEventListener('click', closeSettings);
   
   // タブ切り替え
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -171,25 +166,40 @@ function setupEventListeners() {
     });
   });
   
+  // アバター入力方法タブ切り替え
+  document.querySelectorAll('.avatar-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabName = btn.dataset.avatarTab;
+      
+      document.querySelectorAll('.avatar-tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.avatar-input-content').forEach(c => c.classList.remove('active'));
+      
+      btn.classList.add('active');
+      document.getElementById(`avatar-${tabName}-input`).classList.add('active');
+    });
+  });
+  
+  // アバターURL プレビュー
+  document.getElementById('preview-avatar-url').addEventListener('click', previewAvatarURL);
+  
+  // アバターファイル選択
+  document.getElementById('select-avatar-file').addEventListener('click', () => {
+    document.getElementById('avatar-file').click();
+  });
+  
+  document.getElementById('avatar-file').addEventListener('change', handleAvatarFileUpload);
+  
   // プロフィール保存
   document.getElementById('save-profile').addEventListener('click', saveProfile);
   
   // ログアウト
   document.getElementById('logout-btn').addEventListener('click', logout);
   
-  // アバター選択
-  document.querySelectorAll('.avatar-option').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.avatar-option').forEach(b => b.classList.remove('selected'));
-      btn.classList.add('selected');
-    });
-  });
-  
   // UID コピー
   document.getElementById('copy-uid').addEventListener('click', () => {
     const uid = document.getElementById('user-uid').textContent;
     navigator.clipboard.writeText(uid).then(() => {
-      showNotification('UID copied to clipboard!', 'success');
+      showNotification('UIDをコピーしました！', 'success');
     });
   });
   
@@ -232,14 +242,118 @@ function updateStats(stats) {
   document.getElementById('stat-winrate').textContent = `${winRate}%`;
 }
 
+// 設定パネルを閉じる
+function closeSettings() {
+  document.getElementById('settings-panel').classList.remove('open');
+  document.getElementById('settings-overlay').classList.remove('show');
+}
+
+// アバター表示を更新（画像URL対応）
+function updateAvatarDisplay(avatarUrl) {
+  // ヘッダーのアバター
+  const headerAvatar = document.getElementById('user-avatar');
+  const headerFallback = document.getElementById('user-avatar-fallback');
+  
+  if (avatarUrl && avatarUrl.startsWith('http')) {
+    headerAvatar.src = avatarUrl;
+    headerAvatar.style.display = 'inline';
+    headerFallback.style.display = 'none';
+  } else {
+    headerAvatar.style.display = 'none';
+    headerFallback.style.display = 'inline';
+    headerFallback.textContent = avatarUrl || '👤';
+  }
+  
+  // プレビューのアバター
+  const previewImg = document.getElementById('current-avatar-img');
+  const previewPlaceholder = document.getElementById('current-avatar-placeholder');
+  
+  if (avatarUrl && avatarUrl.startsWith('http')) {
+    previewImg.src = avatarUrl;
+    previewImg.style.display = 'block';
+    previewPlaceholder.style.display = 'none';
+  } else {
+    previewImg.style.display = 'none';
+    previewPlaceholder.style.display = 'flex';
+    previewPlaceholder.querySelector('span').textContent = avatarUrl || '👤';
+  }
+  
+  // URL入力欄にも反映
+  if (avatarUrl && avatarUrl.startsWith('http')) {
+    document.getElementById('avatar-url').value = avatarUrl;
+  }
+}
+
+// アバターURLのプレビュー
+function previewAvatarURL() {
+  const url = document.getElementById('avatar-url').value.trim();
+  
+  if (!url) {
+    showNotification('URLを入力してください', 'error');
+    return;
+  }
+  
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    showNotification('有効なURLを入力してください（http:// または https://）', 'error');
+    return;
+  }
+  
+  // プレビュー更新
+  updateAvatarDisplay(url);
+  showNotification('プレビューを更新しました。保存ボタンを押してください。', 'success');
+}
+
+// アバターファイルアップロード処理
+function handleAvatarFileUpload(e) {
+  const file = e.target.files[0];
+  
+  if (!file) return;
+  
+  // ファイルサイズチェック（1MB以下）
+  if (file.size > 1024 * 1024) {
+    showNotification('ファイルサイズは1MB以下にしてください', 'error');
+    return;
+  }
+  
+  // 画像ファイルチェック
+  if (!file.type.startsWith('image/')) {
+    showNotification('画像ファイルを選択してください', 'error');
+    return;
+  }
+  
+  // Base64に変換してプレビュー
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    const base64 = event.target.result;
+    updateAvatarDisplay(base64);
+    showNotification('プレビューを更新しました。保存ボタンを押してください。', 'success');
+  };
+  reader.onerror = () => {
+    showNotification('ファイルの読み込みに失敗しました', 'error');
+  };
+  reader.readAsDataURL(file);
+}
+
 // プロフィール保存
 async function saveProfile() {
   const nickname = document.getElementById('edit-nickname').value.trim();
-  const selectedAvatar = document.querySelector('.avatar-option.selected');
-  const avatar = selectedAvatar ? selectedAvatar.dataset.avatar : currentUser.avatar;
+  
+  // アバター取得（URL または Base64）
+  let avatar;
+  const avatarUrl = document.getElementById('avatar-url').value.trim();
+  const previewImg = document.getElementById('current-avatar-img');
+  
+  if (previewImg.style.display !== 'none' && previewImg.src) {
+    avatar = previewImg.src;
+  } else if (avatarUrl && avatarUrl.startsWith('http')) {
+    avatar = avatarUrl;
+  } else {
+    const fallback = document.getElementById('current-avatar-placeholder').querySelector('span').textContent;
+    avatar = fallback || '👤';
+  }
   
   if (!nickname || nickname.length < 1 || nickname.length > 20) {
-    showNotification('Nickname must be 1-20 characters', 'error');
+    showNotification('ニックネームは1〜20文字で入力してください', 'error');
     return;
   }
   
@@ -256,7 +370,7 @@ async function saveProfile() {
     
     if (!response.ok) {
       const data = await response.json();
-      throw new Error(data.error || 'Failed to update profile');
+      throw new Error(data.error || 'プロフィールの更新に失敗しました');
     }
     
     const data = await response.json();
@@ -265,9 +379,15 @@ async function saveProfile() {
     
     // UI更新
     document.getElementById('user-nickname').textContent = currentUser.nickname;
-    document.getElementById('user-avatar').textContent = currentUser.avatar;
+    updateAvatarDisplay(currentUser.avatar);
     
-    showNotification('Profile updated successfully!', 'success');
+    showNotification('プロフィールを更新しました！', 'success');
+    
+    // 設定パネルを閉じる
+    setTimeout(() => {
+      closeSettings();
+    }, 1000);
+    
   } catch (error) {
     console.error('Profile update error:', error);
     showNotification(error.message, 'error');
@@ -324,30 +444,36 @@ function displayFriends(friends) {
   if (!friends || friends.length === 0) {
     friendsList.innerHTML = `
       <div class="empty-state">
-        <p>No friends yet</p>
-        <p class="hint">Use settings to add friends</p>
+        <p>まだフレンドがいません</p>
+        <p class="hint">設定からフレンドを追加できます</p>
       </div>
     `;
     return;
   }
   
-  friendsList.innerHTML = friends.map(friend => `
-    <div class="friend-item" data-user-id="${friend._id}">
-      <div class="friend-info">
-        <span class="friend-avatar">${friend.avatar}</span>
-        <div class="friend-details">
-          <h4>${friend.nickname}</h4>
-          <p>UID: ${friend.uid}</p>
+  friendsList.innerHTML = friends.map(friend => {
+    const avatarHtml = friend.avatar && friend.avatar.startsWith('http')
+      ? `<img class="friend-avatar" src="${friend.avatar}" alt="${friend.nickname}" onerror="this.outerHTML='<div class=\\'friend-avatar\\' style=\\'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; font-size: 1.5rem;\\'>👤</div>';">`
+      : `<div class="friend-avatar" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">${friend.avatar || '👤'}</div>`;
+    
+    return `
+      <div class="friend-item" data-user-id="${friend._id}">
+        <div class="friend-info">
+          ${avatarHtml}
+          <div class="friend-details">
+            <h4>${friend.nickname}</h4>
+            <p>UID: ${friend.uid}</p>
+          </div>
+        </div>
+        <div class="friend-actions">
+          <div class="online-status" id="status-${friend._id}"></div>
+          <button class="btn btn-primary btn-sm" onclick="inviteFriend('${friend._id}')">
+            招待
+          </button>
         </div>
       </div>
-      <div class="friend-actions">
-        <div class="online-status" id="status-${friend._id}"></div>
-        <button class="btn btn-primary btn-sm" onclick="inviteFriend('${friend._id}')">
-          Invite
-        </button>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 // フレンドオンライン状態更新
@@ -365,12 +491,12 @@ function updateFriendOnlineStatus(userId, isOnline) {
 // フレンド招待
 function inviteFriend(friendId) {
   if (!currentParty) {
-    showNotification('Create a party first!', 'error');
+    showNotification('先にパーティーを作成してください', 'error');
     return;
   }
   
   socket.emit('invite_to_party', { targetUserId: friendId });
-  showNotification('Invitation sent!', 'success');
+  showNotification('招待を送信しました！', 'success');
 }
 
 // フレンド追加
@@ -401,7 +527,7 @@ async function addFriend(e) {
       throw new Error(data.error || 'Failed to send request');
     }
     
-    resultDiv.textContent = 'Friend request sent successfully!';
+    resultDiv.textContent = 'フレンド申請を送信しました！';
     resultDiv.className = 'result-message success show';
     
     document.getElementById('friend-search').value = '';
@@ -460,25 +586,31 @@ function displayReceivedRequests(requests) {
   const container = document.getElementById('received-requests');
   
   if (!requests || requests.length === 0) {
-    container.innerHTML = '<p class="empty-state">No pending requests</p>';
+    container.innerHTML = '<p class="empty-state">申請はありません</p>';
     return;
   }
   
-  container.innerHTML = requests.map(req => `
-    <div class="request-item">
-      <div class="request-user">
-        <span class="request-avatar">${req.from.avatar}</span>
-        <div class="request-details">
-          <h4>${req.from.nickname}</h4>
-          <p>UID: ${req.from.uid}</p>
+  container.innerHTML = requests.map(req => {
+    const avatarHtml = req.from.avatar && req.from.avatar.startsWith('http')
+      ? `<img class="request-avatar" src="${req.from.avatar}" alt="${req.from.nickname}">`
+      : `<div class="request-avatar" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">${req.from.avatar || '👤'}</div>`;
+    
+    return `
+      <div class="request-item">
+        <div class="request-user">
+          ${avatarHtml}
+          <div class="request-details">
+            <h4>${req.from.nickname}</h4>
+            <p>UID: ${req.from.uid}</p>
+          </div>
+        </div>
+        <div class="request-actions">
+          <button class="btn btn-primary" onclick="acceptRequest('${req._id}')">承認</button>
+          <button class="btn btn-secondary" onclick="rejectRequest('${req._id}')">拒否</button>
         </div>
       </div>
-      <div class="request-actions">
-        <button class="btn btn-primary" onclick="acceptRequest('${req._id}')">Accept</button>
-        <button class="btn btn-secondary" onclick="rejectRequest('${req._id}')">Reject</button>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 // 送信リクエスト表示
@@ -486,24 +618,30 @@ function displaySentRequests(requests) {
   const container = document.getElementById('sent-requests');
   
   if (!requests || requests.length === 0) {
-    container.innerHTML = '<p class="empty-state">No pending requests</p>';
+    container.innerHTML = '<p class="empty-state">申請はありません</p>';
     return;
   }
   
-  container.innerHTML = requests.map(req => `
-    <div class="request-item">
-      <div class="request-user">
-        <span class="request-avatar">${req.to.avatar}</span>
-        <div class="request-details">
-          <h4>${req.to.nickname}</h4>
-          <p>UID: ${req.to.uid}</p>
+  container.innerHTML = requests.map(req => {
+    const avatarHtml = req.to.avatar && req.to.avatar.startsWith('http')
+      ? `<img class="request-avatar" src="${req.to.avatar}" alt="${req.to.nickname}">`
+      : `<div class="request-avatar" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">${req.to.avatar || '👤'}</div>`;
+    
+    return `
+      <div class="request-item">
+        <div class="request-user">
+          ${avatarHtml}
+          <div class="request-details">
+            <h4>${req.to.nickname}</h4>
+            <p>UID: ${req.to.uid}</p>
+          </div>
+        </div>
+        <div class="request-actions">
+          <span style="color: var(--text-muted); font-size: 0.9rem;">送信済み...</span>
         </div>
       </div>
-      <div class="request-actions">
-        <span style="color: var(--text-muted); font-size: 0.9rem;">Pending...</span>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 // リクエスト承認
@@ -517,9 +655,9 @@ async function acceptRequest(requestId) {
       credentials: 'include'
     });
     
-    if (!response.ok) throw new Error('Failed to accept request');
+    if (!response.ok) throw new Error('申請の承認に失敗しました');
     
-    showNotification('Friend request accepted!', 'success');
+    showNotification('フレンド申請を承認しました！', 'success');
     loadFriendRequests();
     loadFriends();
     
@@ -540,9 +678,9 @@ async function rejectRequest(requestId) {
       credentials: 'include'
     });
     
-    if (!response.ok) throw new Error('Failed to reject request');
+    if (!response.ok) throw new Error('申請の拒否に失敗しました');
     
-    showNotification('Friend request rejected', 'success');
+    showNotification('フレンド申請を拒否しました', 'success');
     loadFriendRequests();
     
   } catch (error) {
@@ -554,7 +692,7 @@ async function rejectRequest(requestId) {
 // パーティー作成
 function createParty(maxSize) {
   if (currentParty) {
-    showNotification('You are already in a party', 'error');
+    showNotification('既にパーティーに参加しています', 'error');
     return;
   }
   
@@ -588,9 +726,9 @@ function updatePartyUI(party) {
     return `
       <div class="party-member">
         <div class="member-info">
-          <span>${isSelf ? 'You' : 'Member'}</span>
-          ${isLeader ? '<span class="member-status leader">Leader</span>' : ''}
-          ${isReady ? '<span class="member-status ready">Ready</span>' : '<span class="member-status not-ready">Not Ready</span>'}
+          <span>${isSelf ? 'あなた' : 'メンバー'}</span>
+          ${isLeader ? '<span class="member-status leader">リーダー</span>' : ''}
+          ${isReady ? '<span class="member-status ready">準備OK</span>' : '<span class="member-status not-ready">待機中</span>'}
         </div>
       </div>
     `;
@@ -601,15 +739,15 @@ function updatePartyUI(party) {
   const isFull = party.members.length === party.maxSize;
   
   if (allReady && isFull) {
-    statusContainer.textContent = 'All players ready! Starting session...';
+    statusContainer.textContent = '全員準備完了！セッションを開始します...';
     statusContainer.style.backgroundColor = 'rgba(80, 200, 120, 0.1)';
     statusContainer.style.borderLeftColor = 'var(--secondary-color)';
   } else if (!isFull) {
-    statusContainer.textContent = `Waiting for ${party.maxSize - party.members.length} more player(s)...`;
+    statusContainer.textContent = `あと${party.maxSize - party.members.length}人待っています...`;
     statusContainer.style.backgroundColor = 'rgba(243, 156, 18, 0.1)';
     statusContainer.style.borderLeftColor = 'var(--warning-color)';
   } else {
-    statusContainer.textContent = 'Waiting for all members to be ready...';
+    statusContainer.textContent = '全員の準備が完了するのを待っています...';
     statusContainer.style.backgroundColor = 'rgba(74, 144, 226, 0.1)';
     statusContainer.style.borderLeftColor = 'var(--primary-color)';
   }
@@ -620,11 +758,11 @@ function updatePartyUI(party) {
   const isCurrentUserReady = party.readyStatus[currentUser._id];
   
   if (isCurrentUserReady) {
-    readyText.textContent = 'Not Ready';
+    readyText.textContent = '準備解除';
     readyBtn.classList.remove('btn-primary');
     readyBtn.classList.add('btn-secondary');
   } else {
-    readyText.textContent = 'Ready';
+    readyText.textContent = '準備完了';
     readyBtn.classList.remove('btn-secondary');
     readyBtn.classList.add('btn-primary');
   }
@@ -669,7 +807,7 @@ function showInviteModal(invite) {
   const modal = document.getElementById('invite-modal');
   const message = document.getElementById('invite-message');
   
-  message.textContent = `You have been invited to a ${invite.maxSize}-player party!`;
+  message.textContent = `${invite.maxSize}人パーティーに招待されました！`;
   modal.classList.add('show');
 }
 
