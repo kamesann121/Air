@@ -7,7 +7,7 @@
 :root {
   --primary-color: #4a90e2;
   --secondary-color: #50c878;
-  --danger-color: #e74c3c;
+  --danger-color: #ef4444;
   --team1-color: #3498db;
   --team2-color: #e74c3c;
   --dark-bg: #1a1a2e;
@@ -271,16 +271,28 @@ body {
   box-shadow: 0 4px 12px rgba(74, 144, 226, 0.5);
 }
 
+.btn-danger {
+  background-color: var(--danger-color);
+  color: white;
+}
+
+.btn-danger:hover {
+  background-color: #dc2626;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.5);
+}
+
 /* プレイヤーサイドバー */
 .players-sidebar {
   position: fixed;
   top: 100px;
   right: 20px;
-  background: rgba(26, 26, 46, 0.9);
+  background: rgba(26, 26, 46, 0.95);
   padding: 1rem;
   border-radius: 12px;
   min-width: 200px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  backdrop-filter: blur(10px);
 }
 
 .players-sidebar h3 {
@@ -305,6 +317,13 @@ body {
 
 .player-item.team2 {
   border-left: 3px solid var(--team2-color);
+}
+
+.btn-surrender {
+  width: 100%;
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  padding: 0.75rem 1rem;
 }
 
 /* レスポンシブ */
