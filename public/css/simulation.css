@@ -97,6 +97,62 @@ body {
   letter-spacing: 1px;
 }
 
+/* ゴール演出 */
+.goal-notification {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  z-index: 500;
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  pointer-events: none;
+}
+
+.goal-notification.show {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+}
+
+.goal-content {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 3rem 4rem;
+  border-radius: 2rem;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  text-align: center;
+  border: 4px solid rgba(255,255,255,0.3);
+}
+
+.goal-player {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 1rem;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+
+.goal-text {
+  font-size: 4rem;
+  font-weight: 900;
+  color: #ffd700;
+  text-shadow: 0 4px 20px rgba(255,215,0,0.5);
+  letter-spacing: 0.1em;
+  animation: goalPulse 0.5s ease-in-out;
+}
+
+@keyframes goalPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.goal-points {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #fff;
+  margin-top: 1rem;
+  opacity: 0.9;
+}
+
 /* セッションコンテナ */
 .session-container,
 .game-container {
@@ -105,17 +161,15 @@ body {
   align-items: center;
   justify-content: center;
   position: relative;
-  padding: 1rem;
+  padding: 0;
+  overflow: hidden;
 }
 
-/* セッションキャンバス */
+/* 3Dキャンバス */
 #game-canvas {
-  border: 3px solid #2d2d44;
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-  background: linear-gradient(135deg, #1a2332 0%, #243447 100%);
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 /* セッション終了画面 */
@@ -253,34 +307,6 @@ body {
   border-left: 3px solid var(--team2-color);
 }
 
-/* タッチコントロール（モバイル） */
-.touch-controls {
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 50;
-}
-
-.touch-area {
-  width: 150px;
-  height: 150px;
-  background: radial-gradient(circle, rgba(74, 144, 226, 0.3) 0%, rgba(74, 144, 226, 0.1) 100%);
-  border: 3px solid rgba(74, 144, 226, 0.5);
-  border-radius: 50%;
-  position: relative;
-}
-
-.touch-area::after {
-  content: '🎯';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 2rem;
-  opacity: 0.5;
-}
-
 /* レスポンシブ */
 @media (max-width: 1024px) {
   .players-sidebar {
@@ -311,4 +337,36 @@ body {
     gap: 0.5rem;
   }
   
-  .team-info h3
+  .team-info h3 {
+    font-size: 0.7rem;
+  }
+  
+  .score {
+    font-size: 1.5rem;
+  }
+  
+  #timer {
+    font-size: 1.2rem;
+  }
+  
+  .session-status,
+  .game-status {
+    font-size: 0.7rem;
+  }
+  
+  #winner-text {
+    font-size: 2rem;
+  }
+  
+  .score-large {
+    font-size: 3rem;
+  }
+  
+  .goal-content {
+    padding: 2rem 3rem;
+  }
+  
+  .goal-text {
+    font-size: 3rem;
+  }
+}
